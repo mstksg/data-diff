@@ -166,27 +166,6 @@ diffSum'
 diffSum' = sumDiff' $ \((i :&: I x) :&: (_ :&: I y)) -> diff x y
     \\ every @_ @Diff i
 
--- -- instance (ListC (Eq <$> (f <$> as)), ListC (Diff <$> (f <$> as))) => Diff (Sum f as) where
--- --     -- Could be more type-safe:
--- --     --   Can create ESumSame even if two of diff index
--- --     data Edit (Sum f as) = ESum (SumDiff f (Edit :.: f) as)
--- --     diff xs = ESum . sumDiff (\i x y -> Comp (diff x y) \\ w i) xs
--- --       where
--- --         w   :: forall bs b. (ListC (Diff <$> (f <$> bs)))
--- --             => Index bs b
--- --             -> Wit (Diff (f b))
--- --         w = \case
--- --             IZ    -> Wit
--- --             IS ix -> Wit \\ w ix
-
--- -- data SOPDiff :: (k -> Type) -> [[k]] -> Type where
--- --     SOPDiff :: SumDiff (Prod f) (Prod (Edit :.: f)) ass -> SOPDiff f ass
-
--- type family (f :: k -> l) <$$> (as :: [[k]]) :: [[l]] where
---     f <$$> Ø         = Ø
---     f <$$> (a :< as) = (f <$> a) :< (f <$$> as)
--- infixr 4 <$$>
-
 diffSOP
     :: forall ass. Every (Every Diff) ass
     => Sum Tuple ass
@@ -201,11 +180,24 @@ diffSOP = sumDiff combine
     combine (i :&: xs :&: ys) = every @_ @(Every Diff) i //
         izipProdWith go xs ys
       where
-        go  :: Every Diff as
-            => Index as a
-            -> I a
-            -> I a
-            -> Edit a
+        go :: Every Diff as => Index as a -> I a -> I a -> Edit a
+        go j (I x) (I y) = diff x y \\ every @_ @Diff j
+
+diffSOP'
+    :: forall ass. (Every (Every Diff) ass, Every Typeable ass)
+    => Sum Tuple ass
+    -> Sum Tuple ass
+    -> SumDiff Tuple (Prod Edit) ass
+diffSOP' = sumDiff' combine
+  where
+    combine
+        :: forall as. ()
+        => ((Index ass :&: Tuple) :&: (Index ass :&: Tuple)) as
+        -> Prod Edit as
+    combine ((i :&: xs) :&: (_ :&: ys)) = every @_ @(Every Diff) i //
+        izipProdWith go xs ys
+      where
+        go :: Every Diff as => Index as a -> I a -> I a -> Edit a
         go j (I x) (I y) = diff x y \\ every @_ @Diff j
 
 sopSum :: SOP.NS f as -> Sum f as
