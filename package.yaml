@@ -1,0 +1,56 @@
+name:                generics-diff
+version:             0.1.0.0
+github:              "mstksg/generics-diff"
+license:             BSD3
+author:              "Justin Le"
+maintainer:          "justin@jle.im"
+copyright:           "(c) Justin Le 2018"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/mstksg/generics-diff#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+ghc-options:
+- -Wall
+
+library:
+  source-dirs: src
+  dependencies:
+  # - lens
+  - generics-sop
+  - type-combinators
+  - singletons
+
+executables:
+  generics-diff-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - generics-diff
+
+tests:
+  generics-diff-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - generics-diff
