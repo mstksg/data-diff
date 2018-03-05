@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: fe24630377f2506159c313f062ab79370fe099e33a453c02edff8ec98e1a72cc
+-- hash: 80e8b36b7d42750ee40b62f119a6675062de585d76c9f5cbd498b43f54e5da08
 
 name:           data-diff
 version:        0.1.0.0
@@ -36,6 +36,7 @@ library
     , type-combinators
   exposed-modules:
       Data.Diff
+      GHC.Generics.Diff
   other-modules:
       Paths_data_diff
   default-language: Haskell2010

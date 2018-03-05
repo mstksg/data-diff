@@ -18,11 +18,11 @@
 
 module Data.Diff (
     Diff(..)
-  , Edit'(..), diff'
+  , Edit'(..), diff', patch'
   ) where
 
+-- import           Data.Bifunctor
 -- import           Type.Family.List
-import           Data.Bifunctor
 import           Data.Kind
 import           Data.Singletons.Decide
 import           Data.Type.Combinator
@@ -47,6 +47,9 @@ newtype Edit' a = Edit' { getEdit' :: Edit a }
 
 diff' :: Diff a => a -> a -> Edit' a
 diff' x y = Edit' (diff x y)
+
+patch' :: Diff a => Edit' a -> a -> Maybe a
+patch' (Edit' x) = patch x
 
 instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a, b) = (Edit a, Edit b)
@@ -74,191 +77,4 @@ instance (Diff a, Diff b) => Diff (Either a b) where
     -- flipPatch (L2R x y) = R2L y x
     -- flipPatch (R2L y x) = L2R x y
     -- flipPatch (R2R e  ) = R2R (flipPatch @b e)
-
-data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
-    SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
-    SDDiff :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
-
-sumIx :: Sum f as -> Some (Index as :&: f)
-sumIx = \case
-  InL x  -> Some (IZ :&: x)
-  InR xs -> case sumIx xs of
-    Some (i :&: x) -> Some (IS i :&: x)
-
-sumDiff
-    :: forall f g as. ()
-    => (forall a. (Index as :&: f :&: f) a -> g a)
-    -> Sum f as
-    -> Sum f as
-    -> SumDiff f g as
-sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
-    case testEquality i j of
-      Just Refl -> SDSame (i :&: i :&: f (i :&: x :&: y))
-      Nothing   -> SDDiff (i :&: x) (j :&: y)
-
-diffSum
-    :: forall as. Every Diff as
-    => Sum I as
-    -> Sum I as
-    -> SumDiff I Edit' as
-diffSum = sumDiff $ \(i :&: I x :&: I y) -> diff' x y \\ every @_ @Diff i
-
--- | Version of sumDiff that uses 'SDSame' if two different indices, but
--- same type
-sumDiff'
-    :: forall f g as. Every Typeable as
-    => (forall a. Typeable a => ((Index as :&: f) :&: (Index as :&: f)) a -> g a)
-    -> Sum f as
-    -> Sum f as
-    -> SumDiff f g as
-sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
-        every @_ @Typeable i //
-        every @_ @Typeable j //
-    case testEquality (tr i) (tr j) of
-      Just Refl -> SDSame (i :&: j :&: f ((i :&: x) :&: (j :&: y)))
-      Nothing   -> SDDiff (i :&: x) (j :&: y)
-  where
-    tr :: Typeable a => p a -> TypeRep a
-    tr _ = typeRep
-
--- | Version of diffSum' that considers compatible constructor changes as swaps
-diffSum'
-    :: forall as. (Every Diff as, Every Typeable as)
-    => Sum I as
-    -> Sum I as
-    -> SumDiff I Edit' as
-diffSum' = sumDiff' $ \((i :&: I x) :&: (_ :&: I y)) -> diff' x y
-    \\ every @_ @Diff i
-
-diffSOP
-    :: forall ass. Every (Every Diff) ass
-    => Sum Tuple ass
-    -> Sum Tuple ass
-    -> SumDiff Tuple (Prod Edit') ass
-diffSOP = sumDiff combine
-  where
-    combine
-        :: forall as. ()
-        => (Index ass :&: Tuple :&: Tuple) as
-        -> Prod Edit' as
-    combine (i :&: xs :&: ys) = every @_ @(Every Diff) i //
-        izipProdWith go xs ys
-      where
-        go :: Every Diff as => Index as a -> I a -> I a -> Edit' a
-        go j (I x) (I y) = diff' x y \\ every @_ @Diff j
-
-diffSOP'
-    :: forall ass. (Every (Every Diff) ass, Every Typeable ass)
-    => Sum Tuple ass
-    -> Sum Tuple ass
-    -> SumDiff Tuple (Prod Edit') ass
-diffSOP' = sumDiff' combine
-  where
-    combine
-        :: forall as. ()
-        => ((Index ass :&: Tuple) :&: (Index ass :&: Tuple)) as
-        -> Prod Edit' as
-    combine ((i :&: xs) :&: (_ :&: ys)) = every @_ @(Every Diff) i //
-        izipProdWith go xs ys
-      where
-        go :: Every Diff as => Index as a -> I a -> I a -> Edit' a
-        go j (I x) (I y) = diff' x y \\ every @_ @Diff j
-
-sopSum :: SOP.NS f as -> Sum f as
-sopSum = \case
-    SOP.Z x  -> InL x
-    SOP.S xs -> InR (sopSum xs)
-
-sopProd :: SOP.NP f as -> Prod f as
-sopProd = \case
-    SOP.Nil     -> Ø
-    x SOP.:* xs -> x :< sopProd xs
-
-data ConstructorEdit as = CECC (Prod                         Edit'  as)
-                        | CECR (Prod (C String           :&: Edit') as)
-                        | CERC (Prod (C String           :&: Edit') as)
-                        | CERR (Prod (C (String, String) :&: Edit') as)
-
-diffSOPInfo
-    :: forall ass. ()
-    => SOP.DatatypeInfo ass
-    -> SumDiff Tuple (Prod Edit') ass
-    -> SumDiff (C SOP.ConstructorName :&: Tuple)
-               (C (SOP.ConstructorName, SOP.ConstructorName) :&: ConstructorEdit)
-               ass
-diffSOPInfo dti = \case
-    SDSame (i :&: j :&: x)       ->
-      SDSame ( i
-           :&: j
-           :&: (C (cLab i, cLab j) :&: (cEdit i j) x)
-             )
-    SDDiff (i :&: xs) (j :&: ys) ->
-      SDDiff (i :&: (C (cLab i) :&: xs))
-             (j :&: (C (cLab j) :&: ys))
-  where
-    cEdit
-        :: Index ass as
-        -> Index ass as
-        -> Prod Edit' as
-        -> ConstructorEdit as
-    cEdit i j = case (TCP.index i cInfo, TCP.index j cInfo) of
-        (SOP.Record _ f1, SOP.Record _ f2) ->
-            CERR
-          . zipProdWith gorr (zipProd (sopProd f1) (sopProd f2))
-        (_, SOP.Record _ f2) -> CECR
-                              . zipProdWith ((:&:) . C . SOP.fieldName) (sopProd f2)
-        (SOP.Record _ f1, _) -> CERC
-                              . zipProdWith ((:&:) . C . SOP.fieldName) (sopProd f1)
-        (_, _)               -> CECC
-      where
-        gorr
-            :: (SOP.FieldInfo :&: SOP.FieldInfo) a
-            -> Edit' a
-            -> (C (String, String) :&: Edit') a
-        gorr (f1 :&: f2) e = C (SOP.fieldName f1, SOP.fieldName f2) :&: e
-    cLab :: Index ass as -> SOP.ConstructorName
-    cLab i = SOP.constructorName
-           . TCP.index i
-           $ cInfo
-    cInfo :: Prod SOP.ConstructorInfo ass
-    cInfo = sopProd . SOP.constructorInfo $ dti
-
-zipProd
-    :: Prod f as
-    -> Prod g as
-    -> Prod (f :&: g) as
-zipProd = \case
-    Ø -> \case
-      Ø -> Ø
-    x :< xs -> \case
-      y :< ys -> (x :&: y) :< zipProd xs ys
-
-izipProdWith
-    :: forall f g h as. ()
-    => (forall a. Index as a -> f a -> g a -> h a)
-    -> Prod f as
-    -> Prod g as
-    -> Prod h as
-izipProdWith f = \case
-    Ø -> \case
-      Ø -> Ø
-    x :< xs -> \case
-      y :< ys -> f IZ x y :< izipProdWith (f . IS) xs ys
-
-zipProdWith
-    :: forall f g h as. ()
-    => (forall a. f a -> g a -> h a)
-    -> Prod f as
-    -> Prod g as
-    -> Prod h as
-zipProdWith f = go
-  where
-    go  :: Prod f bs
-        -> Prod g bs
-        -> Prod h bs
-    go = \case
-      Ø -> \case
-        Ø -> Ø
-      x :< xs -> \case
-        y :< ys -> f x y :< go xs ys
 
