@@ -1,6 +1,6 @@
-name:                generics-diff
+name:                data-diff
 version:             0.1.0.0
-github:              "mstksg/generics-diff"
+github:              "mstksg/data-diff"
 license:             BSD3
 author:              "Justin Le"
 maintainer:          "justin@jle.im"
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on Github at <https://github.com/mstksg/generics-diff#readme>
+description:         Please see the README on Github at <https://github.com/mstksg/data-diff#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -28,21 +28,20 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
-  # - lens
   - generics-sop
   - type-combinators
   - singletons
 
-executables:
-  generics-diff-exe:
-    main:                Main.hs
-    source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - generics-diff
+# executables:
+#   generics-diff-exe:
+#     main:                Main.hs
+#     source-dirs:         app
+#     ghc-options:
+#     - -threaded
+#     - -rtsopts
+#     - -with-rtsopts=-N
+#     dependencies:
+#     - data-diff
 
 tests:
   generics-diff-test:
@@ -53,4 +52,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - generics-diff
+    - data-diff
