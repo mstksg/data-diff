@@ -27,6 +27,11 @@ ghc-options:
 
 library:
   source-dirs: src
+  exposed-modules:
+  - Data.Diff
+  - GHC.Generics.Diff
+  other-modules:
+  - Data.Type.Combinator.Util
   dependencies:
   - generics-sop
   - type-combinators
