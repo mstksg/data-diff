@@ -29,7 +29,7 @@ library:
   source-dirs: src
   exposed-modules:
   - Data.Diff
-  - GHC.Generics.Diff
+  - Data.Diff.Generics
   other-modules:
   - Data.Type.Combinator.Util
   dependencies:

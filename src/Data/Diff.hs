@@ -1,16 +1,4 @@
-{-# LANGUAGE AllowAmbiguousTypes  #-}
-{-# LANGUAGE EmptyCase            #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE PolyKinds            #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeInType           #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies            #-}
 
 module Data.Diff (
     Diff(..)
@@ -33,7 +21,7 @@ patch' (Edit' x) = patch x
 instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a, b) = (Edit a, Edit b)
     diff (x1, y1) (x2, y2) = (diff x1 x2, diff y1 y2)
-    patch (ex, ey) (x, y) = (,) <$> patch   ex x <*> patch   ey y
+    patch (ex, ey) (x, y) = (,) <$> patch ex x <*> patch ey y
 
 data EitherEdit a b = L2L (Edit a)
                     | L2R a b
