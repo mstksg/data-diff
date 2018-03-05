@@ -20,16 +20,17 @@
 module GHC.Generics.Diff (
     GDiff(..)
   , gdiff
-  , gdiff_
+  , gdiff'
   , gpatch
-  , gpatch_
+  , GDiffProd(..)
+  , gdiffProd
+  , gpatchProd
   , SumDiff(..)
   ) where
 
 import           Data.Diff
 import           Data.Function
 import           Data.Kind
-import           Data.Proxy
 import           Data.Singletons.Decide
 import           Data.Type.Combinator
 import           Data.Type.Conjunction
@@ -44,87 +45,68 @@ import qualified Data.Type.Product      as TCP
 import qualified Data.Type.Sum          as TCS
 import qualified Generics.SOP           as SOP
 
--- newtype GDiff ass = GDiff
---     { getGDiff :: SumDiff (C SOP.ConstructorName :&: Tuple)
---                           (C (SOP.ConstructorName, SOP.ConstructorName) :&: ConstructorEdit)
---                           ass
---     }
+newtype GDiff a ass = GDiff { getGDiff :: SumDiff Tuple (Prod Edit') ass }
 
 gdiff
-    :: forall a ass. (SOP.Generic a, SOP.HasDatatypeInfo a, SOP.Code a ~ ass, Every (Every Diff) ass)
-    => a
-    -> a
-    -> GDiff ass
-gdiff x y = GDiff
-          . diffSOPInfo (SOP.datatypeInfo (Proxy @a))
-          $ gdiff_ x y
-
-gdiff_
     :: forall a ass. (SOP.Generic a, SOP.Code a ~ ass, Every (Every Diff) ass)
     => a
     -> a
-    -> SumDiff Tuple (Prod Edit') ass
-gdiff_ = diffSOP `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+    -> GDiff a ass
+gdiff x y = GDiff $ go x y
+  where
+    go = diffSOP `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+
+gdiff'
+    :: forall a ass. (SOP.Generic a, SOP.Code a ~ ass, Every (Every Diff) ass, Every Typeable ass)
+    => a
+    -> a
+    -> GDiff a ass
+gdiff' x y = GDiff $ go x y
+  where
+    go = diffSOP' `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+
 
 gpatch
     :: (SOP.Generic a, SOP.Code a ~ ass, Every (Every Diff) ass)
-    => GDiff ass
+    => GDiff a ass
     -> a
     -> Maybe a
-gpatch (GDiff es) = gpatch_ (stripSumDiff es)
+gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
+         . patchSOP (getGDiff e)
+         . map1 (map1 (I . SOP.unI))
+         . sopSOP
+         . SOP.from
 
-gpatch_
-    :: (SOP.Generic a, SOP.Code a ~ ass, Every (Every Diff) ass)
-    => SumDiff Tuple (Prod Edit') ass
+newtype GDiffProd a as = GDiffProd { getGDiffProd :: Prod Edit' as }
+
+gdiffProd
+    :: forall a as. (SOP.IsProductType a as, Every Diff as)
+    => a
+    -> a
+    -> GDiffProd a as
+gdiffProd x y = GDiffProd $ go x y
+  where
+    go :: a -> a -> Prod Edit' as
+    go = izipProdWith (\i -> d i `on` SOP.unI) `on`
+           sopProd . SOP.unZ . SOP.unSOP . SOP.from
+    d :: Index as b -> b -> b -> Edit' b
+    d i = diff' \\ every @_ @Diff i
+
+gpatchProd
+    :: forall a as. (SOP.IsProductType a as, Every Diff as)
+    => GDiffProd a as
     -> a
     -> Maybe a
-gpatch_ e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
-          . patchSOP e
-          . map1 (map1 (I . SOP.unI))
-          . sopSOP
-          . SOP.from
-
-
-data GDiffProd as = GDiffProdConstr SOP.ConstructorName (Prod Edit' as)
-                  | GDiffProdFields SOP.ConstructorName (Prod (C SOP.FieldName :&: Edit') as)
-
--- asProd :: forall as. GDiff '[as] -> GDiffProd as
--- asProd (GDiff es) = _
---   where
---     c1 :: String
---     c2 :: String
---     ce :: ConstructorEdit as
---     ((c1, c2), ce) = case es of
---       SDSame (IZ :&: IZ :&: (C cs :&: ce)) -> (cs, ce)
---       SDDiff (IZ :&: (C c :&: x)) (IZ :&: (C d :&: y)) -> ((c, d), _)
---     -- SDSame (IZ :&: IZ :&: (C c :&: ce)) -> _
-
--- data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
---     SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
---     SDDiff :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
-
-
-    -- SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
-    -- SDDiff :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
-    
-
--- gdiffProd
---     :: forall a ass. (SOP.Generic a, SOP.HasDatatypeInfo a, SOP.Code a ~ ass, Every (Every Diff) ass)
---     => a
---     -> a
---     -> GDiff ass
--- gdiffProd x y = GDiff
---           . diffSOPInfo (SOP.datatypeInfo (Proxy @a))
---           $ gdiff_ x y
-
--- newtype GDiffProd as =
---     GDiffProd (
---               SumDiff (C SOP.ConstructorName :&: Tuple)
---                        (C (SOP.ConstructorName, SOP.ConstructorName) :&: ConstructorEdit)
---                        ass
---               )
-
-
+gpatchProd es = fmap (SOP.to . SOP.SOP . SOP.Z . prodSOP)
+              . itraverse1 (\i -> fmap SOP.I . go i)
+              . zipProd (getGDiffProd es)
+              . sopProd
+              . SOP.unZ
+              . SOP.unSOP
+              . SOP.from
+  where
+    go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
+    go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
 
 
 -- -- -- --
@@ -150,13 +132,6 @@ sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
       Just Refl -> SDSame (i :&: i :&: f (i :&: x :&: y))
       Nothing   -> SDDiff (i :&: x) (j :&: y)
 
-diffSum
-    :: forall as. Every Diff as
-    => Sum I as
-    -> Sum I as
-    -> SumDiff I Edit' as
-diffSum = sumDiff $ \(i :&: I x :&: I y) -> diff' x y \\ every @_ @Diff i
-
 -- | Version of sumDiff that uses 'SDSame' if two different indices, but
 -- same type
 sumDiff'
@@ -174,15 +149,6 @@ sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
   where
     tr :: Typeable a => p a -> TypeRep a
     tr _ = typeRep
-
--- | Version of diffSum' that considers compatible constructor changes as swaps
-diffSum'
-    :: forall as. (Every Diff as, Every Typeable as)
-    => Sum I as
-    -> Sum I as
-    -> SumDiff I Edit' as
-diffSum' = sumDiff' $ \((i :&: I x) :&: (_ :&: I y)) -> diff' x y
-    \\ every @_ @Diff i
 
 diffSOP
     :: forall ass. Every (Every Diff) ass
@@ -266,25 +232,6 @@ diffSOPInfo dti = \case
            $ cInfo
     cInfo :: Prod SOP.ConstructorInfo ass
     cInfo = sopProd . SOP.constructorInfo $ dti
-
-stripCE :: ConstructorEdit a -> Prod Edit' a
-stripCE = \case
-    CECC es -> es
-    CECR es -> map1 fanSnd es
-    CERC es -> map1 fanSnd es
-    CERR es -> map1 fanSnd es
-
-stripSumDiff
-    :: SumDiff (C SOP.ConstructorName :&: Tuple)
-               (C (SOP.ConstructorName, SOP.ConstructorName) :&: ConstructorEdit)
-               ass
-    -> SumDiff Tuple (Prod Edit') ass
-stripSumDiff = \case
-    SDSame (i :&: j :&: (_ :&: x)) -> SDSame (i :&: j :&: stripCE x)
-    -- SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
-    -- SDDiff :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
-
-
 
 patchSOP
     :: forall ass. Every (Every Diff) ass
