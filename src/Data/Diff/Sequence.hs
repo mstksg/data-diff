@@ -1,49 +1,69 @@
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Data.Diff.Sequence (
     listDiff
-  , patchList
-  , SeqDiff(..)
+  , listPatch
+  , SeqPatch(..)
   , seqDiff
-  , patchSeq
+  , seqPatch
   ) where
 
 import           Control.Monad
 import           Data.Diff.Internal
 import           Data.Function
+import           Data.Semigroup
 import qualified Data.Algorithm.Diff as D
+import qualified Data.List.NonEmpty  as NE
 
-newtype SeqDiff a = SD { getSD :: [D.Diff a] }
+newtype SeqPatch a = SP { getSP :: [D.Diff a] }
+
+instance Diff a => Patch (SeqPatch a) where
+    patchLevel = maybe NoDiff (sconcat . fmap dLevel)
+               . NE.nonEmpty
+               . getSP
+      where
+        dLevel :: D.Diff a -> DiffLevel
+        dLevel (D.Both x y) = compareDiff x y
+        dLevel (D.First _ ) = TotalDiff
+        dLevel (D.Second _) = TotalDiff
+
+instance Diff a => Diff [a] where
+    type Edit [a] = SeqPatch a
+    diff  = listDiff
+    patch = listPatch
 
 listDiff
     :: Diff a
     => [a]
     -> [a]
-    -> SeqDiff a
-listDiff xs = SD . D.getDiffBy noDiff xs
+    -> SeqPatch a
+listDiff xs = SP . D.getDiffBy noDiff xs
 
 seqDiff
     :: Diff a
     => (t -> [a])
     -> t
     -> t
-    -> SeqDiff a
+    -> SeqPatch a
 seqDiff f = listDiff `on` f
 
-patchSeq
+seqPatch
     :: Eq a
     => (t -> [a])
     -> ([a] -> t)
-    -> SeqDiff a
+    -> SeqPatch a
     -> t
     -> Maybe t
-patchSeq f g d = fmap g . patchList d . f
+seqPatch f g d = fmap g . listPatch d . f
 
-patchList
+listPatch
     :: Eq a
-    => SeqDiff a
+    => SeqPatch a
     -> [a]
     -> Maybe [a]
-patchList (SD es0) = go es0
+listPatch (SP es0) = go es0
   where
     go (D.First x  : es) xs = (x :) <$> contract x es xs
     go (D.Second x : es) xs = (x :) <$> go es xs
