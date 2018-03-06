@@ -30,12 +30,13 @@ library:
   exposed-modules:
   - Data.Diff
   - Data.Diff.Generics
+  - Data.Diff.Sequence
   other-modules:
   - Data.Type.Combinator.Util
   dependencies:
   - generics-sop
   - type-combinators
-  - singletons
+  - Diff
 
 # executables:
 #   generics-diff-exe:
