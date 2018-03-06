@@ -28,6 +28,7 @@ instance Diff a => Patch (SeqPatch a) where
         dLevel (D.Both x y) = compareDiff x y
         dLevel (D.First _ ) = TotalDiff
         dLevel (D.Second _) = TotalDiff
+    mergePatch = undefined
 
 instance Diff a => Diff [a] where
     type Edit [a] = SeqPatch a

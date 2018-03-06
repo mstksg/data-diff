@@ -36,14 +36,17 @@ import           Data.Type.Product
 import           Data.Type.Sum
 import           Type.Class.Higher
 import           Type.Class.Witness
+import           Type.Family.Constraint
 import           Type.Reflection
 import qualified Data.Type.Sum             as TCS
+import qualified GHC.Generics              as G
 import qualified Generics.SOP              as SOP
 
 newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
 
-instance (SOP.Generic a, Every (Every Diff) (SOP.Code a)) => Patch (GPatch a) where
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every (Comp Patch Edit')) (SOP.Code a)) => Patch (GPatch a) where
     patchLevel = gpPatchLevel
+    mergePatch = gpMergePatch
 
 gpPatchLevel
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
@@ -59,9 +62,48 @@ gpPatchLevel = \case
 
 prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
 prodPatchLevel = \case
-    Ø                  -> NoDiff
-    Edit' x :< Ø       -> patchLevel x
-    Edit' x :< y :< zs -> patchLevel x <> prodPatchLevel (y :< zs)
+    Ø                      -> NoDiff
+    Edit' x :< Ø           -> patchLevel x
+    Edit' x :< xs@(_ :< _) -> patchLevel x <> prodPatchLevel xs
+
+gpMergePatch
+    :: (Every (Every (Comp Patch Edit')) (SOP.Code a))
+    => GPatch a
+    -> GPatch a
+    -> MergeResult (GPatch a)
+gpMergePatch = \case
+    l@(GP (SDSame (i1 :&: j1 :&: es1))) -> \case
+      GP (SDSame (i2 :&: j2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl ->
+          let k = GP . (\es -> SDSame (i1 :&: j1 :&: es))
+                   <$> prodMergePatch es1 es2 \\ every @_ @(Every (Comp Patch Edit')) i1
+          in  case testEquality j1 j2 of
+                Just Refl -> k
+                Nothing   -> Conflict id <*> k
+        Nothing -> Incompatible
+      GP (SDDiff (i2 :&: _) (_ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+    l@(GP (SDDiff (i1 :&: _) (_ :&: _))) -> \case
+      GP (SDSame (i2 :&: _ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+      GP (SDDiff (i2 :&: _) (_ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+
+prodMergePatch
+    :: forall as. Every (Comp Patch Edit') as
+    => Prod Edit' as
+    -> Prod Edit' as
+    -> MergeResult (Prod Edit' as)
+prodMergePatch xs = traverse1 G.unComp1 . izipProdWith go xs
+  where
+    go  :: Index as a
+        -> Edit' a
+        -> Edit' a
+        -> (MergeResult G.:.: Edit') a
+    go i x y = G.Comp1 (mergePatch x y) \\ every @_ @(Comp Patch Edit') i
 
 gdiff
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
@@ -96,8 +138,9 @@ gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
 data GPatchProd a = forall as. (SOP.Code a ~ '[as])
                  => GPP { getGPP :: Prod Edit' as }
 
-instance (SOP.IsProductType a as, Every Diff as) => Patch (GPatchProd a) where
+instance (SOP.IsProductType a as, Every Diff as, Every (Comp Patch Edit') as) => Patch (GPatchProd a) where
     patchLevel (GPP es) = prodPatchLevel es
+    mergePatch (GPP es1) (GPP es2) = GPP <$> prodMergePatch es1 es2
 
 gdiffProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)

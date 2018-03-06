@@ -1,15 +1,17 @@
-{-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE DefaultSignatures          #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module Data.Diff.Internal (
     Diff(..)
-  , Patch(..), DiffLevel(..)
+  , Patch(..), DiffLevel(..), MergeResult(..)
   , compareDiff, noDiff
   , Edit'(..), diff', patch'
   , TuplePatch(..)
@@ -60,12 +62,24 @@ instance Applicative MergeResult where
 class Patch a where
     -- | "Level" of patch
     patchLevel :: a -> DiffLevel
+    default patchLevel
+        :: (SOP.Generic a, Every (Every Patch) (SOP.Code a))
+        => a
+        -> DiffLevel
+    patchLevel = gpatchLevel
+
     -- | Left-biased parallel merge of two patches
     --
     -- Returns 'Nothing' if patches come from incompatible sources
     --
     -- Returns 'True' if conflict occurred (and was resolved)
     mergePatch :: a -> a -> MergeResult a
+    default mergePatch
+        :: (SOP.IsProductType a as, Every Patch as)
+        => a
+        -> a
+        -> MergeResult a
+    mergePatch = gmergePatch
 
 class (Eq a, Patch (Edit a)) => Diff a where
     type Edit a
@@ -73,6 +87,10 @@ class (Eq a, Patch (Edit a)) => Diff a where
     patch     :: Edit a -> a -> Maybe a
 
 newtype Edit' a = Edit' { getEdit' :: Edit a }
+    deriving (Generic)
+
+instance SOP.Generic (Edit' a)
+instance Patch (Edit a) => Patch (Edit' a)
 
 diff' :: Diff a => a -> a -> Edit' a
 diff' x y = Edit' (diff x y)
@@ -98,6 +116,16 @@ instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a, b)         = TuplePatch a b
     diff (x1, y1) (x2, y2)   = TP (diff x1 x2) (diff y1 y2)
     patch (TP ex ey) (x, y)  = (,) <$> patch ex x <*> patch ey y
+
+data Swap a b = Swap a b
+
+instance (Eq a, Eq b) => Patch (Swap a b) where
+    patchLevel _   = TotalDiff
+    mergePatch s@(Swap x1 y1) (Swap x2 y2)
+        | x1 == x2  = if y1 == y2
+                        then NoConflict s
+                        else Conflict   s
+        | otherwise = Incompatible
 
 data EitherPatch a b = L2L (Edit a)
                      | L2R a b
@@ -158,8 +186,9 @@ gpatchLevel = ifromSum go . map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
             => Tuple bs
             -> DiffLevel
         mergeAll = \case
-          Ø        -> NoDiff
-          I x :< Ø -> patchLevel x
+          Ø                  -> NoDiff
+          I x :< Ø           -> patchLevel x
+          I x :< xs@(_ :< _) -> patchLevel x <> mergeAll xs
 
 gmergePatch
     :: forall a as. (SOP.IsProductType a as, Every Patch as)
