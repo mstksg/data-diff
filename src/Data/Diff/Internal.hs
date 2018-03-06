@@ -12,6 +12,7 @@
 module Data.Diff.Internal (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
+  , merge
   , compareDiff, noDiff
   , Edit'(..), diff', patch'
   , TuplePatch(..)
@@ -94,6 +95,15 @@ class (Eq a, Patch (Edit a)) => Diff a where
     diff      :: a -> a -> Edit a
     patch     :: Edit a -> a -> Maybe a
 
+-- | Left-biased merge of two diffable values.
+merge :: Diff a => a -> a -> a -> MergeResult a
+merge o x y = do
+    pz <- mergePatch px py
+    maybe Incompatible NoConflict $ patch pz o
+  where
+    px = diff o x
+    py = diff o y
+
 newtype Edit' a = Edit' { getEdit' :: Edit a }
     deriving (Generic)
 
@@ -111,6 +121,7 @@ compareDiff x y = patchLevel (diff x y)
 
 noDiff :: Diff a => a -> a -> Bool
 noDiff x y = compareDiff x y == NoDiff
+
 
 data TuplePatch a b = TP (Edit a) (Edit b)
     deriving (Generic)
