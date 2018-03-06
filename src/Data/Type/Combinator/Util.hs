@@ -14,6 +14,8 @@ module Data.Type.Combinator.Util (
   , sopSop
   , prodSOP
   , sumIx
+  , fromSum
+  , ifromSum
   ) where
 
 import           Data.Type.Conjunction
@@ -21,7 +23,7 @@ import           Data.Type.Index
 import           Data.Type.Product
 import           Data.Type.Sum
 import           Type.Class.Higher
-import qualified Generics.SOP              as SOP
+import qualified Generics.SOP          as SOP
 
 
 zipProd
@@ -95,3 +97,23 @@ sumIx = \case
   InR xs -> case sumIx xs of
     Some (i :&: x) -> Some (IS i :&: x)
 
+fromSum
+    :: forall f as r. ()
+    => (forall a. f a -> r)
+    -> Sum f as
+    -> r
+fromSum f = go
+  where
+    go :: Sum f bs -> r
+    go = \case
+      InL x  -> f x
+      InR xs -> go xs
+
+ifromSum
+    :: forall f as r. ()
+    => (forall a. Index as a -> f a -> r)
+    -> Sum f as
+    -> r
+ifromSum f = \case
+    InL x  -> f IZ x
+    InR xs -> ifromSum (f . IS) xs

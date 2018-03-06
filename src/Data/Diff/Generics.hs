@@ -43,13 +43,13 @@ import qualified Generics.SOP              as SOP
 newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a)) => Patch (GPatch a) where
-    patchLevel = gpatchLevel
+    patchLevel = gpPatchLevel
 
-gpatchLevel
+gpPatchLevel
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
     => GPatch a
     -> DiffLevel
-gpatchLevel = \case
+gpPatchLevel = \case
     GP (SDSame (i :&: j :&: xs))
         | i == j    -> prodPatchLevel xs
                           \\ every @_ @(Every Diff) i
