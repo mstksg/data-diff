@@ -34,7 +34,7 @@ gdiffProd :: forall a as. (IsProductType a as, Every Diff as) => a -> a -> GPatc
 gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -> a -> Maybe a
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SDSame] :: (Index as :&: (Index as :&: g)) a -> SumDiff f g as
-[SDDiff] :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
+[SDDiff] :: Index as a -> (Index as :&: f) b -> SumDiff f g as
 instance (Generics.SOP.Universe.Generic a, Data.Type.Index.Every (Data.Type.Index.Every Data.Diff.Internal.Diff) (Generics.SOP.Universe.Code a), Data.Type.Index.Every (Data.Type.Index.Every (Type.Family.Constraint.Comp Data.Diff.Internal.Patch Data.Diff.Internal.Edit')) (Generics.SOP.Universe.Code a)) => Data.Diff.Internal.Patch (Data.Diff.Generics.GPatch a)
 instance (Generics.SOP.Universe.IsProductType a as, Data.Type.Index.Every Data.Diff.Internal.Diff as, Data.Type.Index.Every (Type.Family.Constraint.Comp Data.Diff.Internal.Patch Data.Diff.Internal.Edit') as) => Data.Diff.Internal.Patch (Data.Diff.Generics.GPatchProd a)
 
@@ -84,8 +84,8 @@ data TuplePatch a b
 TP :: (Edit a) -> (Edit b) -> TuplePatch a b
 data EitherPatch a b
 L2L :: (Edit a) -> EitherPatch a b
-L2R :: (Swap a b) -> EitherPatch a b
-R2L :: (Swap b a) -> EitherPatch a b
+L2R :: b -> EitherPatch a b
+R2L :: a -> EitherPatch a b
 R2R :: (Edit b) -> EitherPatch a b
 gpatchLevel :: forall a ass. (Generic a, Code a ~ ass, Every (Every Patch) ass) => a -> DiffLevel
 gmergePatch :: forall a as. (IsProductType a as, Every Patch as) => a -> a -> MergeResult a
@@ -109,4 +109,4 @@ gdiffProd :: forall a as. (IsProductType a as, Every Diff as) => a -> a -> GPatc
 gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -> a -> Maybe a
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SDSame] :: (Index as :&: (Index as :&: g)) a -> SumDiff f g as
-[SDDiff] :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
+[SDDiff] :: Index as a -> (Index as :&: f) b -> SumDiff f g as
