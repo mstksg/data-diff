@@ -1,14 +1,15 @@
-{-# LANGUAGE DataKinds               #-}
-{-# LANGUAGE FlexibleContexts        #-}
-{-# LANGUAGE GADTs                   #-}
-{-# LANGUAGE LambdaCase              #-}
-{-# LANGUAGE PolyKinds               #-}
-{-# LANGUAGE RankNTypes              #-}
-{-# LANGUAGE ScopedTypeVariables     #-}
-{-# LANGUAGE TypeApplications        #-}
-{-# LANGUAGE TypeFamilies            #-}
-{-# LANGUAGE TypeOperators           #-}
-{-# LANGUAGE ViewPatterns            #-}
+{-# LANGUAGE DataKinds            #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE GADTs                #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE PolyKinds            #-}
+{-# LANGUAGE RankNTypes           #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE TypeApplications     #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE TypeOperators        #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns         #-}
 
 
 module Data.Diff.Generics (
@@ -25,6 +26,7 @@ module Data.Diff.Generics (
 import           Data.Diff
 import           Data.Function
 import           Data.Kind
+import           Data.Semigroup            ((<>))
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
 import           Data.Type.Conjunction
@@ -39,6 +41,27 @@ import qualified Data.Type.Sum             as TCS
 import qualified Generics.SOP              as SOP
 
 newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
+
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a)) => Patch (GPatch a) where
+    patchLevel = gpatchLevel
+
+gpatchLevel
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+    => GPatch a
+    -> DiffLevel
+gpatchLevel = \case
+    GP (SDSame (i :&: j :&: xs))
+        | i == j    -> prodPatchLevel xs
+                          \\ every @_ @(Every Diff) i
+        | otherwise -> TotalDiff <> prodPatchLevel xs
+                          \\ every @_ @(Every Diff) i
+    GP (SDDiff _ _) -> TotalDiff
+
+prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
+prodPatchLevel = \case
+    Ø                  -> NoDiff
+    Edit' x :< Ø       -> patchLevel x
+    Edit' x :< y :< zs -> patchLevel x <> prodPatchLevel (y :< zs)
 
 gdiff
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
@@ -72,6 +95,9 @@ gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
 
 data GPatchProd a = forall as. (SOP.Code a ~ '[as])
                  => GPP { getGPP :: Prod Edit' as }
+
+instance (SOP.IsProductType a as, Every Diff as) => Patch (GPatchProd a) where
+    patchLevel (GPP es) = prodPatchLevel es
 
 gdiffProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)

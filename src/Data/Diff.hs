@@ -3,13 +3,23 @@
 
 module Data.Diff (
     Diff(..)
+  , Patch(..), DiffLevel(..)
   , Edit'(..), diff', patch'
   ) where
+
+import           Data.Semigroup hiding (diff)
 
 data DiffLevel = NoDiff
                | PartialDiff
                | TotalDiff
     deriving (Eq, Ord, Show)
+
+instance Semigroup DiffLevel where
+    NoDiff      <> NoDiff    = NoDiff
+    NoDiff      <> _         = PartialDiff
+    PartialDiff <> _         = PartialDiff
+    TotalDiff   <> TotalDiff = TotalDiff
+    TotalDiff   <> _         = PartialDiff
 
 class Patch a where
     patchLevel :: a -> DiffLevel
@@ -30,12 +40,7 @@ patch' (Edit' x) = patch x
 data TuplePatch a b = TP (Edit a) (Edit b)
 
 instance (Patch (Edit a), Patch (Edit b)) => Patch (TuplePatch a b) where
-    patchLevel (TP x y) = case (patchLevel x, patchLevel y) of
-      (NoDiff     , NoDiff   ) -> NoDiff
-      (NoDiff     , _        ) -> PartialDiff
-      (PartialDiff, _        ) -> PartialDiff
-      (TotalDiff  , TotalDiff) -> TotalDiff
-      (TotalDiff  , _        ) -> PartialDiff
+    patchLevel (TP x y) = patchLevel x <> patchLevel y
 
 instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a, b)         = TuplePatch a b
