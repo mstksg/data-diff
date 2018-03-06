@@ -136,20 +136,20 @@ instance (Diff a, Diff b) => Diff (a, b) where
     diff (x1, y1) (x2, y2)   = TP (diff x1 x2) (diff y1 y2)
     patch (TP ex ey) (x, y)  = (,) <$> patch ex x <*> patch ey y
 
-data Swap a b = Swap a b
-    deriving (Show, Eq, Ord)
+-- data Swap a b = Swap a b
+--     deriving (Show, Eq, Ord)
 
-instance (Eq a, Eq b) => Patch (Swap a b) where
-    patchLevel _   = TotalDiff
-    mergePatch s@(Swap x1 y1) (Swap x2 y2)
-        | x1 == x2  = if y1 == y2
-                        then NoConflict s
-                        else Conflict   s
-        | otherwise = Incompatible
+-- instance (Eq a, Eq b) => Patch (Swap a b) where
+--     patchLevel _   = TotalDiff
+--     mergePatch s@(Swap x1 y1) (Swap x2 y2)
+--         | x1 == x2  = if y1 == y2
+--                         then NoConflict s
+--                         else Conflict   s
+--         | otherwise = Incompatible
 
 data EitherPatch a b = L2L (Edit a)
-                     | L2R (Swap a b)
-                     | R2L (Swap b a)
+                     | L2R b
+                     | R2L a
                      | R2R (Edit b)
 
 instance (Patch (Edit a), Patch (Edit b), Eq a, Eq b) => Patch (EitherPatch a b) where
@@ -163,12 +163,12 @@ instance (Patch (Edit a), Patch (Edit b), Eq a, Eq b) => Patch (EitherPatch a b)
     mergePatch   (L2L _ ) (R2L _ ) = Incompatible
     mergePatch   (L2L _ ) (R2R _ ) = Incompatible
     mergePatch l@(L2R _ ) (L2L _ ) = Conflict l
-    mergePatch   (L2R s1) (L2R s2) = L2R <$> mergePatch s1 s2
+    mergePatch l@(L2R _ ) (L2R _ ) = Conflict l
     mergePatch   (L2R _ ) (R2L _ ) = Incompatible
     mergePatch   (L2R _ ) (R2R _ ) = Incompatible
     mergePatch   (R2L _ ) (L2L _ ) = Incompatible
     mergePatch   (R2L _ ) (L2R _ ) = Incompatible
-    mergePatch   (R2L s1) (R2L s2) = R2L <$> mergePatch s1 s2
+    mergePatch l@(R2L _ ) (R2L _ ) = Conflict l
     mergePatch l@(R2L _ ) (R2R _ ) = Conflict l
     mergePatch   (R2R _ ) (L2L _ ) = Incompatible
     mergePatch   (R2R _ ) (L2R _ ) = Incompatible
@@ -178,14 +178,14 @@ instance (Patch (Edit a), Patch (Edit b), Eq a, Eq b) => Patch (EitherPatch a b)
 instance (Diff a, Diff b) => Diff (Either a b) where
     type Edit (Either a b) = EitherPatch a b
     diff (Left  x) (Left  y) = L2L (diff x y)
-    diff (Left  x) (Right y) = L2R (Swap x y)
-    diff (Right x) (Left  y) = R2L (Swap x y)
+    diff (Left  _) (Right y) = L2R y
+    diff (Right _) (Left  y) = R2L y
     diff (Right x) (Right y) = R2R (diff x y)
-    patch (L2L e         ) (Left  x) = Left <$> patch e x
-    patch (L2R (Swap _ y)) (Left  _) = Just (Right y)
-    patch (R2L (Swap _ x)) (Right _) = Just (Left  x)
-    patch (R2R e         ) (Right y) = Right <$> patch e y
-    patch _                _         = Nothing
+    patch (L2L e) (Left  x) = Left <$> patch e x
+    patch (L2R y) (Left  _) = Just (Right y)
+    patch (R2L x) (Right _) = Just (Left  x)
+    patch (R2R e) (Right y) = Right <$> patch e y
+    patch _       _         = Nothing
 
 gpatchLevel
     :: forall a ass. (SOP.Generic a, SOP.Code a ~ ass, Every (Every Patch) ass)

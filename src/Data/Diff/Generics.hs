@@ -81,14 +81,14 @@ gpMergePatch = \case
                 Just Refl -> k
                 Nothing   -> Conflict id <*> k
         Nothing -> Incompatible
-      GP (SDDiff (i2 :&: _) (_ :&: _)) -> case testEquality i1 i2 of
+      GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
         Just Refl -> Conflict l
         Nothing   -> Incompatible
-    l@(GP (SDDiff (i1 :&: _) (_ :&: _))) -> \case
+    l@(GP (SDDiff i1 (_ :&: _))) -> \case
       GP (SDSame (i2 :&: _ :&: _)) -> case testEquality i1 i2 of
         Just Refl -> Conflict l
         Nothing   -> Incompatible
-      GP (SDDiff (i2 :&: _) (_ :&: _)) -> case testEquality i1 i2 of
+      GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
         Just Refl -> Conflict l
         Nothing   -> Incompatible
 
@@ -174,7 +174,7 @@ gpatchProd (GPP es) =
 
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
     SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
-    SDDiff :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
+    SDDiff :: Index as a -> (Index as :&: f) b -> SumDiff f g as
 
 sumDiff
     :: forall f g as. ()
@@ -185,7 +185,7 @@ sumDiff
 sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     case testEquality i j of
       Just Refl -> SDSame (i :&: i :&: f (i :&: x :&: y))
-      Nothing   -> SDDiff (i :&: x) (j :&: y)
+      Nothing   -> SDDiff i (j :&: y)
 
 -- | Version of sumDiff that uses 'SDSame' if two different indices, but
 -- same type
@@ -200,7 +200,7 @@ sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
         every @_ @Typeable j //
     case testEquality (tr i) (tr j) of
       Just Refl -> SDSame (i :&: j :&: f ((i :&: x) :&: (j :&: y)))
-      Nothing   -> SDDiff (i :&: x) (j :&: y)
+      Nothing   -> SDDiff i (j :&: y)
   where
     tr :: Typeable a => p a -> TypeRep a
     tr _ = typeRep
@@ -249,7 +249,7 @@ patchSOP = \case
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go k) (zipProd es xs)
       return (injectSum j ys)
-    SDDiff (i :&: _) (j :&: ys) -> \xss -> do
+    SDDiff i (j :&: ys) -> \xss -> do
       _  <- TCS.index i xss
       return (injectSum j ys)
   where
