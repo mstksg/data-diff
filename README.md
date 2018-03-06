@@ -18,5 +18,10 @@ Three priorities:
 
 *   *[tree-diff][]* doesn't have patching capabilities (update based on diff)
 
+*   *[Diff][]* is only for diffing linear sequences (not data structures in
+    general).  This library actually uses *Diff* internally to implement
+    diffing for sequences.
+
 [gdiff]: http://hackage.haskell.org/package/gdiff
 [tree-diff]: http://hackage.haskell.org/package/tree-diff
+[Diff]: http://hackage.haskell.org/package/Diff

@@ -1,6 +1,8 @@
+{-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE ViewPatterns         #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Data.Diff.Sequence (
@@ -15,11 +17,11 @@ import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Function
-import           Data.Semigroup
-import qualified Data.Algorithm.Diff  as D
-import qualified Data.Algorithm.Diff3 as D
-import qualified Data.List.NonEmpty   as NE
-import qualified Data.Semigroup       as S
+import           Data.Semigroup hiding (diff)
+import qualified Data.Algorithm.Diff   as D
+import qualified Data.Algorithm.Diff3  as D
+import qualified Data.List.NonEmpty    as NE
+import qualified Data.Semigroup        as S
 
 newtype SeqPatch a = SP { getSP :: [D.Diff a] }
 
@@ -36,7 +38,7 @@ instance Diff a => Patch (SeqPatch a) where
     mergePatch (SP es1) (SP es2)
         | xs1 == xs2 = listDiff xs1
                      . concat
-                   <$> traverse dehunk (D.diff3 ys xs1 zs)  -- !!!
+                   <$> traverse dehunk (D.diff3By noDiff ys xs1 zs)  -- !!!
         | otherwise  = Incompatible
       where
         (xs1, ys) = recover es1
@@ -51,15 +53,23 @@ recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
       D.First  x   -> (S.diff [x], mempty    )
       D.Second   y -> (mempty    , S.diff [y])
 
--- WARNING: currently incorrect, Unchanged must be made fuzzy
 dehunk
-    :: D.Hunk a
+    :: forall a. Diff a
+    => D.Hunk a
     -> MergeResult [a]
 dehunk = \case
-    D.LeftChange  xs  -> Conflict xs
-    D.RightChange ys  -> Conflict ys
-    D.Unchanged   xs  -> NoConflict xs      -- !!!
-    D.Conflict xs _ _ -> Conflict xs
+    D.LeftChange  xs     -> Conflict xs
+    D.RightChange ys     -> Conflict ys
+    D.Unchanged   xyzs   -> traverse go xyzs
+    D.Conflict    xs _ _ -> Conflict xs
+  where
+    go :: (a, a, a) -> MergeResult a
+    go (x,o,y) = do
+        p3 <- mergePatch p1 p2
+        maybe Incompatible NoConflict $ patch p3 o
+      where
+        p1 = diff o x
+        p2 = diff o y
 
 instance Diff a => Diff [a] where
     type Edit [a] = SeqPatch a

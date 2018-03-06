@@ -20,6 +20,7 @@ module Data.Diff.Internal (
   , gmergePatch
   ) where
 
+import           Control.Monad
 import           Data.Function
 import           Data.Semigroup            (Semigroup(..))
 import           Data.Type.Combinator
@@ -50,14 +51,21 @@ data MergeResult a = Incompatible
   deriving (Functor, Show, Eq, Ord)
 
 instance Applicative MergeResult where
-    pure = NoConflict
-    Incompatible <*> _            = Incompatible
-    Conflict _   <*> Incompatible = Incompatible
-    Conflict f   <*> Conflict x   = Conflict (f x)
-    Conflict f   <*> NoConflict x = Conflict (f x)
-    NoConflict _ <*> Incompatible = Incompatible
-    NoConflict f <*> Conflict x   = Conflict (f x)
-    NoConflict f <*> NoConflict x = NoConflict (f x)
+    pure  = return
+    (<*>) = ap
+
+instance Monad MergeResult where
+    return = NoConflict
+    rx >>= f = case rx of
+      Incompatible -> Incompatible
+      Conflict x   -> case f x of
+        Incompatible -> Incompatible
+        Conflict y   -> Conflict y
+        NoConflict y -> Conflict y
+      NoConflict x -> case f x of
+        Incompatible -> Incompatible
+        Conflict y   -> Conflict y
+        NoConflict y -> NoConflict y
 
 class Patch a where
     -- | "Level" of patch
