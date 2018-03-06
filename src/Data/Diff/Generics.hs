@@ -12,11 +12,11 @@
 
 
 module Data.Diff.Generics (
-    GDiff(..)
+    GPatch(..)
   , gdiff
   , gdiff'
   , gpatch
-  , GDiffProd(..)
+  , GPatchProd(..)
   , gdiffProd
   , gpatchProd
   , SumDiff(..)
@@ -38,14 +38,14 @@ import           Type.Reflection
 import qualified Data.Type.Sum             as TCS
 import qualified Generics.SOP              as SOP
 
-newtype GDiff a = GDiff { getGDiff :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
+newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
 
 gdiff
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
     => a
     -> a
-    -> GDiff a
-gdiff x y = GDiff $ go x y
+    -> GPatch a
+gdiff x y = GP $ go x y
   where
     go = diffSOP `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
 
@@ -53,32 +53,32 @@ gdiff'
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
     => a
     -> a
-    -> GDiff a
-gdiff' x y = GDiff $ go x y
+    -> GPatch a
+gdiff' x y = GP $ go x y
   where
     go = diffSOP' `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
 
 
 gpatch
     :: (SOP.Generic a, Every (Every Diff) (SOP.Code a))
-    => GDiff a
+    => GPatch a
     -> a
     -> Maybe a
 gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
-         . patchSOP (getGDiff e)
+         . patchSOP (getGP e)
          . map1 (map1 (I . SOP.unI))
          . sopSOP
          . SOP.from
 
-data GDiffProd a = forall as. (SOP.Code a ~ '[as])
-                => GDiffProd { getGDiffProd :: Prod Edit' as }
+data GPatchProd a = forall as. (SOP.Code a ~ '[as])
+                 => GPP { getGPP :: Prod Edit' as }
 
 gdiffProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)
     => a
     -> a
-    -> GDiffProd a
-gdiffProd x y = GDiffProd $ go x y
+    -> GPatchProd a
+gdiffProd x y = GPP $ go x y
   where
     go :: a -> a -> Prod Edit' as
     go = izipProdWith (\i -> d i `on` SOP.unI) `on`
@@ -88,10 +88,10 @@ gdiffProd x y = GDiffProd $ go x y
 
 gpatchProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)
-    => GDiffProd a
+    => GPatchProd a
     -> a
     -> Maybe a
-gpatchProd (GDiffProd es) =
+gpatchProd (GPP es) =
       fmap (SOP.to . SOP.SOP . SOP.Z . prodSOP)
     . itraverse1 (\i -> fmap SOP.I . go i)
     . zipProd es
@@ -102,7 +102,6 @@ gpatchProd (GDiffProd es) =
   where
     go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
     go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
-
 
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
     SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
