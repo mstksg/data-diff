@@ -20,8 +20,6 @@ seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatch a -> t -> Maybe t
 instance Data.Diff.Internal.Diff a => Data.Diff.Internal.Patch (Data.Diff.Sequence.SeqPatch a)
 instance Data.Diff.Internal.Diff a => Data.Diff.Internal.Diff [a]
 
-module Data.Diff
-
 module Data.Diff.Generics
 newtype GPatch a
 GP :: SumDiff Tuple (Prod Edit') (Code a) -> GPatch a
@@ -39,3 +37,76 @@ data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SDDiff] :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
 instance (Generics.SOP.Universe.Generic a, Data.Type.Index.Every (Data.Type.Index.Every Data.Diff.Internal.Diff) (Generics.SOP.Universe.Code a), Data.Type.Index.Every (Data.Type.Index.Every (Type.Family.Constraint.Comp Data.Diff.Internal.Patch Data.Diff.Internal.Edit')) (Generics.SOP.Universe.Code a)) => Data.Diff.Internal.Patch (Data.Diff.Generics.GPatch a)
 instance (Generics.SOP.Universe.IsProductType a as, Data.Type.Index.Every Data.Diff.Internal.Diff as, Data.Type.Index.Every (Type.Family.Constraint.Comp Data.Diff.Internal.Patch Data.Diff.Internal.Edit') as) => Data.Diff.Internal.Patch (Data.Diff.Generics.GPatchProd a)
+
+module Data.Diff
+class (Eq a, Patch (Edit a)) => Diff a where {
+    type family Edit a;
+}
+diff :: Diff a => a -> a -> Edit a
+patch :: Diff a => Edit a -> a -> Maybe a
+class Patch a
+
+-- | <a>Level</a> of patch
+patchLevel :: Patch a => a -> DiffLevel
+
+-- | <a>Level</a> of patch
+patchLevel :: (Patch a, Generic a, Every (Every Patch) (Code a)) => a -> DiffLevel
+
+-- | Left-biased parallel merge of two patches
+--   
+--   Returns <a>Nothing</a> if patches come from incompatible sources
+--   
+--   Returns <a>True</a> if conflict occurred (and was resolved)
+mergePatch :: Patch a => a -> a -> MergeResult a
+
+-- | Left-biased parallel merge of two patches
+--   
+--   Returns <a>Nothing</a> if patches come from incompatible sources
+--   
+--   Returns <a>True</a> if conflict occurred (and was resolved)
+mergePatch :: (Patch a, IsProductType a as, Every Patch as) => a -> a -> MergeResult a
+data DiffLevel
+NoDiff :: DiffLevel
+PartialDiff :: DiffLevel
+TotalDiff :: DiffLevel
+data MergeResult a
+Incompatible :: MergeResult a
+Conflict :: a -> MergeResult a
+NoConflict :: a -> MergeResult a
+compareDiff :: Diff a => a -> a -> DiffLevel
+noDiff :: Diff a => a -> a -> Bool
+newtype Edit' a
+Edit' :: Edit a -> Edit' a
+[getEdit'] :: Edit' a -> Edit a
+diff' :: Diff a => a -> a -> Edit' a
+patch' :: Diff a => Edit' a -> a -> Maybe a
+data TuplePatch a b
+TP :: (Edit a) -> (Edit b) -> TuplePatch a b
+data EitherPatch a b
+L2L :: (Edit a) -> EitherPatch a b
+L2R :: (Swap a b) -> EitherPatch a b
+R2L :: (Swap b a) -> EitherPatch a b
+R2R :: (Edit b) -> EitherPatch a b
+gpatchLevel :: forall a ass. (Generic a, Code a ~ ass, Every (Every Patch) ass) => a -> DiffLevel
+gmergePatch :: forall a as. (IsProductType a as, Every Patch as) => a -> a -> MergeResult a
+listDiff :: Diff a => [a] -> [a] -> SeqPatch a
+listPatch :: Eq a => SeqPatch a -> [a] -> Maybe [a]
+newtype SeqPatch a
+SP :: [Diff a] -> SeqPatch a
+[getSP] :: SeqPatch a -> [Diff a]
+seqDiff :: Diff a => (t -> [a]) -> t -> t -> SeqPatch a
+seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatch a -> t -> Maybe t
+newtype GPatch a
+GP :: SumDiff Tuple (Prod Edit') (Code a) -> GPatch a
+[getGP] :: GPatch a -> SumDiff Tuple (Prod Edit') (Code a)
+gdiff :: forall a. (Generic a, Every (Every Diff) (Code a)) => a -> a -> GPatch a
+gdiff' :: forall a. (Generic a, Every (Every Diff) (Code a), Every Typeable (Code a)) => a -> a -> GPatch a
+gpatch :: (Generic a, Every (Every Diff) (Code a)) => GPatch a -> a -> Maybe a
+data GPatchProd a
+GPP :: Prod Edit' as -> GPatchProd a
+[getGPP] :: GPatchProd a -> Prod Edit' as
+gdiffProd :: forall a as. (IsProductType a as, Every Diff as) => a -> a -> GPatchProd a
+gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -> a -> Maybe a
+data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
+[SDSame] :: (Index as :&: (Index as :&: g)) a -> SumDiff f g as
+[SDDiff] :: (Index as :&: f) a -> (Index as :&: f) b -> SumDiff f g as
