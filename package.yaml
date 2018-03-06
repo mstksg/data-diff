@@ -38,6 +38,7 @@ library:
   - generics-sop
   - type-combinators
   - Diff
+  - diff3
 
 # executables:
 #   generics-diff-exe:
