@@ -33,6 +33,7 @@ library:
   - Data.Diff.Sequence
   other-modules:
   - Data.Type.Combinator.Util
+  - Data.Diff.Internal
   dependencies:
   - generics-sop
   - type-combinators

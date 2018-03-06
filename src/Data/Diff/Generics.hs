@@ -23,7 +23,7 @@ module Data.Diff.Generics (
   , SumDiff(..)
   ) where
 
-import           Data.Diff
+import           Data.Diff.Internal
 import           Data.Function
 import           Data.Kind
 import           Data.Semigroup            ((<>))
