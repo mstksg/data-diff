@@ -56,6 +56,14 @@ Edit' :: Edit a -> Edit' a
 [getEdit'] :: Edit' a -> Edit a
 diff' :: Diff a => a -> a -> Edit' a
 patch' :: Diff a => Edit' a -> a -> Maybe a
+data Swap a
+NoChange :: Swap a
+Replace :: a -> Swap a
+eqDiff :: Eq a => a -> a -> Swap a
+eqPatch :: Swap a -> a -> Maybe a
+newtype EqDiff a
+EqDiff :: a -> EqDiff a
+[getEqDiff] :: EqDiff a -> a
 data TuplePatch a b
 TP :: (Edit a) -> (Edit b) -> TuplePatch a b
 data EitherPatch a b
@@ -72,6 +80,9 @@ SP :: [Diff a] -> SeqPatch a
 [getSP] :: SeqPatch a -> [Diff a]
 seqDiff :: Diff a => (t -> [a]) -> t -> t -> SeqPatch a
 seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatch a -> t -> Maybe t
+
+-- | Type synonym to represent a single line of text
+type LineOf = EqDiff
 newtype GPatch a
 GP :: SumDiff Tuple (Prod Edit') (Code a) -> GPatch a
 [getGP] :: GPatch a -> SumDiff Tuple (Prod Edit') (Code a)
