@@ -13,7 +13,9 @@ module Data.Diff.Internal.Sequence (
   , seqPatch
   , isListDiff
   , isListPatch
-  , LineOf
+  , listDiffBy
+  , seqDiffBy
+  , isListDiffBy
   ) where
 
 import           Control.Monad
@@ -83,12 +85,27 @@ dehunk = \case
         p1 = diff o x
         p2 = diff o y
 
+listDiffBy
+    :: (a -> a -> Bool)
+    -> [a]
+    -> [a]
+    -> SeqPatch a
+listDiffBy f xs = SP . D.getDiffBy f xs
+
 listDiff
     :: Diff a
     => [a]
     -> [a]
     -> SeqPatch a
-listDiff xs = SP . D.getDiffBy (\x y -> compareDiff x y /= TotalDiff) xs
+listDiff = listDiffBy $ \x y -> compareDiff x y /= TotalDiff
+
+seqDiffBy
+    :: (a -> a -> Bool)
+    -> (t -> [a])
+    -> t
+    -> t
+    -> SeqPatch a
+seqDiffBy f g = listDiffBy f `on` g
 
 seqDiff
     :: Diff a
@@ -96,7 +113,7 @@ seqDiff
     -> t
     -> t
     -> SeqPatch a
-seqDiff f = listDiff `on` f
+seqDiff = seqDiffBy $ \x y -> compareDiff x y /= TotalDiff
 
 seqPatch
     :: Eq a
@@ -106,6 +123,15 @@ seqPatch
     -> t
     -> Maybe t
 seqPatch f g d = fmap g . listPatch d . f
+
+isListDiffBy
+    :: (E.IsList l, Diff (E.Item l))
+    => (E.Item l -> E.Item l -> Bool)
+    -> l
+    -> l
+    -> SeqPatch (E.Item l)
+isListDiffBy f = seqDiffBy f E.toList
+
 
 isListDiff
     :: (E.IsList l, Diff (E.Item l))
@@ -163,20 +189,14 @@ instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     diff  = isListDiff
     patch = isListPatch
 
--- | Type synonym to represent a single line of text
-type LineOf = EqDiff
-
 -- | Line-by-line diff
 instance Diff T.Text where
-    type Edit T.Text = SeqPatch (LineOf T.Text)
-    diff  = seqDiff  (map EqDiff . T.splitOn "\n")
-    patch = seqPatch (map EqDiff . T.splitOn "\n")
-                     (T.intercalate "\n" . map getEqDiff)
+    type Edit T.Text = SeqPatch T.Text
+    diff  = seqDiffBy (==) (T.splitOn "\n")
+    patch = seqPatch       (T.splitOn "\n") (T.intercalate "\n")
 
 -- | Line-by-line diff
 instance Diff TL.Text where
-    type Edit TL.Text = SeqPatch (LineOf TL.Text)
-    diff  = seqDiff  (map EqDiff . TL.splitOn "\n")
-    patch = seqPatch (map EqDiff . TL.splitOn "\n")
-                     (TL.intercalate "\n" . map getEqDiff)
-
+    type Edit TL.Text = SeqPatch TL.Text
+    diff  = seqDiffBy (==) (TL.splitOn "\n")
+    patch = seqPatch       (TL.splitOn "\n") (TL.intercalate "\n")

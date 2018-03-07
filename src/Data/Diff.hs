@@ -20,7 +20,6 @@ module Data.Diff (
   , SeqPatch(..)
   , seqDiff
   , seqPatch
-  , LineOf
   -- *** Generic ADTs
   , GPatch(..)
   , gdiff
