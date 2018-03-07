@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
@@ -23,6 +24,8 @@ module Data.Diff.Internal.Sequence (
   , eqSeqPatch
   , eqIsListDiff
   , eqIsListPatch
+  -- * Newtype
+  , Lines(..)
   ) where
 
 import           Control.Monad
@@ -30,6 +33,7 @@ import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Function
 import           Data.Semigroup hiding (diff)
+import           GHC.Generics          (Generic)
 import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
 import qualified Data.IntSet           as IS
@@ -45,7 +49,7 @@ import qualified Data.Vector.Unboxed   as VU
 import qualified GHC.Exts              as E
 
 newtype SeqPatch a = SP { getSP :: [D.Diff a] }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 instance Diff a => Patch (SeqPatch a) where
     patchLevel = maybe NoDiff (sconcat . fmap dLevel)
@@ -68,7 +72,7 @@ instance Diff a => Patch (SeqPatch a) where
         (xs2, zs) = recover es2
 
 newtype EqSeqPatch a = ESP { getESP :: SeqPatch (EqDiff a) }
-  deriving (Show, Eq, Patch)
+  deriving (Show, Eq, Patch, Generic)
 
 recover :: forall a. [D.Diff a] -> ([a], [a])
 recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
@@ -228,6 +232,16 @@ instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     type Edit (VP.Vector a) = SeqPatch a
     diff  = isListDiff
     patch = isListPatch
+
+-- | String that is line-by-line diff'd
+newtype Lines = Lines { getLines :: String }
+    deriving (Show, Eq, Ord, Generic, Read)
+
+instance Diff Lines where
+    type Edit Lines = EqSeqPatch String
+    diff  = eqSeqDiff  (map T.unpack . T.splitOn "\n" . T.pack . getLines)
+    patch = eqSeqPatch (map T.unpack . T.splitOn "\n" . T.pack . getLines)
+                       (Lines . T.unpack . T.intercalate "\n" . map T.pack)
 
 -- | Line-by-line diff
 instance Diff T.Text where
