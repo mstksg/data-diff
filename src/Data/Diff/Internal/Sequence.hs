@@ -34,6 +34,7 @@ import qualified Data.Vector.Unboxed   as VU
 import qualified GHC.Exts              as E
 
 newtype SeqPatch a = SP { getSP :: [D.Diff a] }
+  deriving (Show, Eq)
 
 instance Diff a => Patch (SeqPatch a) where
     patchLevel = maybe NoDiff (sconcat . fmap dLevel)
@@ -69,8 +70,8 @@ dehunk
     => D.Hunk a
     -> MergeResult [a]
 dehunk = \case
-    D.LeftChange  xs     -> Conflict xs
-    D.RightChange ys     -> Conflict ys
+    D.LeftChange  xs     -> NoConflict xs
+    D.RightChange ys     -> NoConflict ys
     D.Unchanged   xyzs   -> traverse go xyzs
     D.Conflict    xs _ _ -> Conflict xs
   where
@@ -127,7 +128,7 @@ listPatch
     -> Maybe [a]
 listPatch (SP es0) = go es0
   where
-    go (D.First x  : es) xs = (x :) <$> contract x es xs
+    go (D.First x  : es) xs = contract x es xs
     go (D.Second x : es) xs = (x :) <$> go es xs
     go (D.Both x y : es) xs = (y :) <$> contract x es xs
     go []                [] = Just []

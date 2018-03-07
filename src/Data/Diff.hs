@@ -5,6 +5,8 @@ module Data.Diff (
   , Patch(..), DiffLevel(..), MergeResult(..)
   , merge, compareDiff
   , Edit'(..), diff', patch'
+  , Swap(..), eqDiff, eqPatch
+  , EqDiff(..)
   , TuplePatch(..)
   , EitherPatch(..)
   -- * Generic implementations
@@ -18,6 +20,7 @@ module Data.Diff (
   , SeqPatch(..)
   , seqDiff
   , seqPatch
+  , LineOf
   -- *** Generic ADTs
   , GPatch(..)
   , gdiff

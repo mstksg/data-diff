@@ -17,7 +17,7 @@ module Data.Diff.Internal (
   , merge
   , compareDiff
   , Edit'(..), diff', patch'
-  , Swap(..)
+  , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
   , TuplePatch(..)
   , EitherPatch(..)
@@ -394,6 +394,15 @@ data Swap a = NoChange
             | Replace a
   deriving (Generic, Eq, Ord, Show, Read)
 
+eqDiff :: Eq a => a -> a -> Swap a
+eqDiff x y
+    | x == y    = NoChange
+    | otherwise = Replace y
+
+eqPatch :: Swap a -> a -> Maybe a
+eqPatch NoChange    x = Just x
+eqPatch (Replace x) _ = Just x
+
 newtype EqDiff a = EqDiff { getEqDiff :: a }
   deriving (Generic, Eq, Ord, Show, Read)
 
@@ -407,11 +416,8 @@ instance Patch (Swap a) where
 
 instance Eq a => Diff (EqDiff a) where
     type Edit (EqDiff a) = Swap a
-    diff (EqDiff x) (EqDiff y)
-        | x == y   = NoChange
-        | otherwise = Replace y
-    patch NoChange    x = Just x
-    patch (Replace x) _ = Just (EqDiff x)
+    diff = eqDiff `on` getEqDiff
+    patch p = fmap EqDiff . eqPatch p . getEqDiff
 
 instance (Diff a, Diff b, Diff c) => Diff (a, b, c) where
     type Edit (a,b,c) = GPatchProd (a,b,c)
@@ -437,3 +443,8 @@ instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f, Diff g) => Diff (a, b,
     type Edit (a,b,c,d,e,f,g) = GPatchProd (a,b,c,d,e,f,g)
     diff  = gdiffProd
     patch = gpatchProd
+
+instance Diff Char where
+    type Edit Char = Swap Char
+    diff  = eqDiff
+    patch = eqPatch
