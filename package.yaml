@@ -32,13 +32,16 @@ library:
   - Data.Diff.Generics
   - Data.Diff.Sequence
   other-modules:
-  - Data.Type.Combinator.Util
   - Data.Diff.Internal
+  - Data.Diff.Internal.Generics
+  - Data.Type.Combinator.Util
   dependencies:
   - generics-sop
   - type-combinators
   - Diff
   - diff3
+  - vector
+  - containers
 
 executables:
   generics-diff-pandoc:

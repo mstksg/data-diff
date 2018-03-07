@@ -2,15 +2,16 @@
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE ViewPatterns         #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Data.Diff.Sequence (
-    listDiff
+    SeqPatch(..)
+  , listDiff
   , listPatch
-  , SeqPatch(..)
   , seqDiff
   , seqPatch
+  , isListDiff
+  , isListPatch
   ) where
 
 import           Control.Monad
@@ -22,6 +23,11 @@ import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
 import qualified Data.List.NonEmpty    as NE
 import qualified Data.Semigroup        as S
+import qualified Data.Vector           as V
+import qualified Data.Vector.Primitive as VP
+import qualified Data.Vector.Storable  as VS
+import qualified Data.Vector.Unboxed   as VU
+import qualified GHC.Exts              as E
 
 newtype SeqPatch a = SP { getSP :: [D.Diff a] }
 
@@ -37,7 +43,9 @@ instance Diff a => Patch (SeqPatch a) where
     mergePatch (SP es1) (SP es2)
         | xs1 == xs2 = listDiff xs1
                      . concat
-                   <$> traverse dehunk (D.diff3By noDiff ys xs1 zs)  -- !!!
+                   <$> traverse dehunk (D.diff3By (\x y -> compareDiff x y /= TotalDiff)
+                                                  ys xs1 zs
+                                       )
         | otherwise  = Incompatible
       where
         (xs1, ys) = recover es1
@@ -70,17 +78,12 @@ dehunk = \case
         p1 = diff o x
         p2 = diff o y
 
-instance Diff a => Diff [a] where
-    type Edit [a] = SeqPatch a
-    diff  = listDiff
-    patch = listPatch
-
 listDiff
     :: Diff a
     => [a]
     -> [a]
     -> SeqPatch a
-listDiff xs = SP . D.getDiffBy noDiff xs
+listDiff xs = SP . D.getDiffBy (\x y -> compareDiff x y /= TotalDiff) xs
 
 seqDiff
     :: Diff a
@@ -99,6 +102,20 @@ seqPatch
     -> Maybe t
 seqPatch f g d = fmap g . listPatch d . f
 
+isListDiff
+    :: (E.IsList l, Diff (E.Item l)) 
+    => l
+    -> l
+    -> SeqPatch (E.Item l)
+isListDiff = seqDiff E.toList
+
+isListPatch
+    :: (E.IsList l, Diff (E.Item l)) 
+    => SeqPatch (E.Item l)
+    -> l
+    -> Maybe l
+isListPatch = seqPatch E.toList E.fromList
+
 listPatch
     :: Eq a
     => SeqPatch a
@@ -115,3 +132,28 @@ listPatch (SP es0) = go es0
       x' : xs' <- pure xs
       guard (x == x')
       go es xs'
+
+instance Diff a => Diff [a] where
+    type Edit [a] = SeqPatch a
+    diff  = listDiff
+    patch = listPatch
+
+instance Diff a => Diff (V.Vector a) where
+    type Edit (V.Vector a) = SeqPatch a
+    diff  = isListDiff
+    patch = isListPatch
+
+instance (Diff a, VS.Storable a) => Diff (VS.Vector a) where
+    type Edit (VS.Vector a) = SeqPatch a
+    diff  = isListDiff
+    patch = isListPatch
+
+instance (Diff a, VU.Unbox a) => Diff (VU.Vector a) where
+    type Edit (VU.Vector a) = SeqPatch a
+    diff  = isListDiff
+    patch = isListPatch
+
+instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
+    type Edit (VP.Vector a) = SeqPatch a
+    diff  = isListDiff
+    patch = isListPatch

@@ -15,7 +15,7 @@ module Data.Diff.Internal (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
   , merge
-  , compareDiff, noDiff
+  , compareDiff
   , Edit'(..), diff', patch'
   , TuplePatch(..)
   , EitherPatch(..)
@@ -31,9 +31,9 @@ module Data.Diff.Internal (
   ) where
 
 import           Control.Monad
-import           Data.Diff.Generics
+import           Data.Diff.Internal.Generics
 import           Data.Function
-import           Data.Semigroup            (Semigroup(..))
+import           Data.Semigroup              (Semigroup(..))
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
 import           Data.Type.Conjunction
@@ -41,13 +41,13 @@ import           Data.Type.Equality
 import           Data.Type.Index
 import           Data.Type.Product
 import           Data.Type.Sum
-import           GHC.Generics              (Generic)
+import           GHC.Generics                (Generic)
 import           Type.Class.Higher
 import           Type.Class.Witness
 import           Type.Family.Constraint
 import           Type.Reflection
-import qualified GHC.Generics              as G
-import qualified Generics.SOP              as SOP
+import qualified GHC.Generics                as G
+import qualified Generics.SOP                as SOP
 
 data DiffLevel = NoDiff
                | PartialDiff
@@ -157,10 +157,6 @@ patch' (Edit' x) = patch x
 compareDiff :: Diff a => a -> a -> DiffLevel
 compareDiff x y = patchLevel (diff x y)
 
-noDiff :: Diff a => a -> a -> Bool
-noDiff x y = compareDiff x y == NoDiff
-
-
 data TuplePatch a b = TP (Edit a) (Edit b)
     deriving (Generic)
 instance SOP.Generic (TuplePatch a b)
@@ -173,17 +169,6 @@ instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a, b)         = TuplePatch a b
     diff (x1, y1) (x2, y2)   = TP (diff x1 x2) (diff y1 y2)
     patch (TP ex ey) (x, y)  = (,) <$> patch ex x <*> patch ey y
-
--- data Swap a b = Swap a b
---     deriving (Show, Eq, Ord)
-
--- instance (Eq a, Eq b) => Patch (Swap a b) where
---     patchLevel _   = TotalDiff
---     mergePatch s@(Swap x1 y1) (Swap x2 y2)
---         | x1 == x2  = if y1 == y2
---                         then NoConflict s
---                         else Conflict   s
---         | otherwise = Incompatible
 
 data EitherPatch a b = L2L (Edit a)
                      | L2R b
