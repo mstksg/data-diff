@@ -34,7 +34,6 @@ instance Diff a => Patch (SeqPatch a) where
         dLevel (D.First _ ) = TotalDiff
         dLevel (D.Second _) = TotalDiff
         dLevel (D.Both x y) = compareDiff x y
-    -- WARNING: currently incorrect, Unchanged and diff3 must be made fuzzy
     mergePatch (SP es1) (SP es2)
         | xs1 == xs2 = listDiff xs1
                      . concat

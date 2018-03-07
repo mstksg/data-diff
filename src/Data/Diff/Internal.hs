@@ -1,13 +1,15 @@
-{-# LANGUAGE DefaultSignatures          #-}
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE DataKinds            #-}
+{-# LANGUAGE DefaultSignatures    #-}
+{-# LANGUAGE DeriveFunctor        #-}
+{-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE GADTs                #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE TypeApplications     #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE TypeOperators        #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Diff.Internal (
     Diff(..)
@@ -19,19 +21,32 @@ module Data.Diff.Internal (
   , EitherPatch(..)
   , gpatchLevel
   , gmergePatch
+  , GPatch(..)
+  , gdiff
+  , gdiff'
+  , gpatch
+  , GPatchProd(..)
+  , gdiffProd
+  , gpatchProd
   ) where
 
 import           Control.Monad
+import           Data.Diff.Generics
 import           Data.Function
 import           Data.Semigroup            (Semigroup(..))
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
+import           Data.Type.Conjunction
+import           Data.Type.Equality
 import           Data.Type.Index
 import           Data.Type.Product
 import           Data.Type.Sum
 import           GHC.Generics              (Generic)
 import           Type.Class.Higher
 import           Type.Class.Witness
+import           Type.Family.Constraint
+import           Type.Reflection
+import qualified GHC.Generics              as G
 import qualified Generics.SOP              as SOP
 
 data DiffLevel = NoDiff
@@ -92,8 +107,31 @@ class Patch a where
 
 class (Eq a, Patch (Edit a)) => Diff a where
     type Edit a
+    type instance Edit a = GPatch a
     diff      :: a -> a -> Edit a
     patch     :: Edit a -> a -> Maybe a
+
+    default diff
+        :: ( Edit a ~ GPatch a
+           , SOP.Generic a
+           , Every (Every Diff) (SOP.Code a)
+           , Every Typeable (SOP.Code a)
+           )
+        => a
+        -> a
+        -> Edit a
+    diff = gdiff'
+
+    default patch
+        :: ( Edit a ~ GPatch a
+           , SOP.Generic a
+           , Every (Every Diff) (SOP.Code a)
+           )
+        => Edit a
+        -> a
+        -> Maybe a
+    patch = gpatch
+
 
 -- | Left-biased merge of two diffable values.
 merge :: Diff a => a -> a -> a -> MergeResult a
@@ -219,3 +257,171 @@ gmergePatch x0 = fmap (SOP.to . sopSop . InL)
          . SOP.unZ
          . SOP.unSOP
          . SOP.from
+
+
+newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
+
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every (Comp Patch Edit')) (SOP.Code a)) => Patch (GPatch a) where
+    patchLevel = gpPatchLevel
+    mergePatch = gpMergePatch
+
+gpPatchLevel
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+    => GPatch a
+    -> DiffLevel
+gpPatchLevel = \case
+    GP (SDSame (i :&: j :&: xs))
+        | i == j    -> prodPatchLevel xs
+                          \\ every @_ @(Every Diff) i
+        | otherwise -> TotalDiff <> prodPatchLevel xs
+                          \\ every @_ @(Every Diff) i
+    GP (SDDiff _ _) -> TotalDiff
+
+prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
+prodPatchLevel = \case
+    Ø                      -> NoDiff
+    Edit' x :< Ø           -> patchLevel x
+    Edit' x :< xs@(_ :< _) -> patchLevel x <> prodPatchLevel xs
+
+gpMergePatch
+    :: (Every (Every (Comp Patch Edit')) (SOP.Code a))
+    => GPatch a
+    -> GPatch a
+    -> MergeResult (GPatch a)
+gpMergePatch = \case
+    l@(GP (SDSame (i1 :&: j1 :&: es1))) -> \case
+      GP (SDSame (i2 :&: j2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl ->
+          let k = GP . (\es -> SDSame (i1 :&: j1 :&: es))
+                   <$> prodMergePatch es1 es2 \\ every @_ @(Every (Comp Patch Edit')) i1
+          in  case testEquality j1 j2 of
+                Just Refl -> k
+                Nothing   -> Conflict id <*> k
+        Nothing -> Incompatible
+      GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+    l@(GP (SDDiff i1 (_ :&: _))) -> \case
+      GP (SDSame (i2 :&: _ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+      GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
+        Just Refl -> Conflict l
+        Nothing   -> Incompatible
+
+prodMergePatch
+    :: forall as. Every (Comp Patch Edit') as
+    => Prod Edit' as
+    -> Prod Edit' as
+    -> MergeResult (Prod Edit' as)
+prodMergePatch xs = traverse1 G.unComp1 . izipProdWith go xs
+  where
+    go  :: Index as a
+        -> Edit' a
+        -> Edit' a
+        -> (MergeResult G.:.: Edit') a
+    go i x y = G.Comp1 (mergePatch x y) \\ every @_ @(Comp Patch Edit') i
+
+gdiff
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+    => a
+    -> a
+    -> GPatch a
+gdiff x y = GP $ go x y
+  where
+    go = diffSOP d `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+      where
+        d :: Index (SOP.Code a) as -> Index as b -> b -> b -> Edit' b
+        d i j = diff' \\ every @_ @Diff         j
+                      \\ every @_ @(Every Diff) i
+
+gdiff'
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
+    => a
+    -> a
+    -> GPatch a
+gdiff' x y = GP $ go x y
+  where
+    go = diffSOP' d `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+      where
+        d :: Index (SOP.Code a) as -> Index as b -> b -> b -> Edit' b
+        d i j = diff' \\ every @_ @Diff         j
+                      \\ every @_ @(Every Diff) i
+
+
+gpatch
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+    => GPatch a
+    -> a
+    -> Maybe a
+gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
+         . patchSOP p (getGP e)
+         . map1 (map1 (I . SOP.unI))
+         . sopSOP
+         . SOP.from
+  where
+    p :: Index (SOP.Code a) as -> Index as b -> Edit' b -> b -> Maybe b
+    p i j = patch' \\ every @_ @Diff         j
+                   \\ every @_ @(Every Diff) i
+
+data GPatchProd a = forall as. (SOP.Code a ~ '[as])
+                 => GPP { getGPP :: Prod Edit' as }
+
+instance (SOP.IsProductType a as, Every Diff as, Every (Comp Patch Edit') as) => Patch (GPatchProd a) where
+    patchLevel (GPP es) = prodPatchLevel es
+    mergePatch (GPP es1) (GPP es2) = GPP <$> prodMergePatch es1 es2
+
+gdiffProd
+    :: forall a as. (SOP.IsProductType a as, Every Diff as)
+    => a
+    -> a
+    -> GPatchProd a
+gdiffProd x y = GPP $ go x y
+  where
+    go :: a -> a -> Prod Edit' as
+    go = izipProdWith (\i -> d i `on` SOP.unI) `on`
+           sopProd . SOP.unZ . SOP.unSOP . SOP.from
+    d :: Index as b -> b -> b -> Edit' b
+    d i = diff' \\ every @_ @Diff i
+
+gpatchProd
+    :: forall a as. (SOP.IsProductType a as, Every Diff as)
+    => GPatchProd a
+    -> a
+    -> Maybe a
+gpatchProd (GPP es) =
+      fmap (SOP.to . SOP.SOP . SOP.Z . prodSOP)
+    . itraverse1 (\i -> fmap SOP.I . go i)
+    . zipProd es
+    . sopProd
+    . SOP.unZ
+    . SOP.unSOP
+    . SOP.from
+  where
+    go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
+    go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
+
+instance (Diff a, Diff b, Diff c) => Diff (a, b, c) where
+    type Edit (a,b,c) = GPatchProd (a,b,c)
+    diff  = gdiffProd
+    patch = gpatchProd
+
+instance (Diff a, Diff b, Diff c, Diff d) => Diff (a, b, c, d) where
+    type Edit (a,b,c,d) = GPatchProd (a,b,c,d)
+    diff  = gdiffProd
+    patch = gpatchProd
+
+instance (Diff a, Diff b, Diff c, Diff d, Diff e) => Diff (a, b, c, d, e) where
+    type Edit (a,b,c,d,e) = GPatchProd (a,b,c,d,e)
+    diff  = gdiffProd
+    patch = gpatchProd
+
+instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f) => Diff (a, b, c, d, e, f) where
+    type Edit (a,b,c,d,e,f) = GPatchProd (a,b,c,d,e,f)
+    diff  = gdiffProd
+    patch = gpatchProd
+
+instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f, Diff g) => Diff (a, b, c, d, e, f, g) where
+    type Edit (a,b,c,d,e,f,g) = GPatchProd (a,b,c,d,e,f,g)
+    diff  = gdiffProd
+    patch = gpatchProd

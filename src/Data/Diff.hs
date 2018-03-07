@@ -3,7 +3,7 @@
 module Data.Diff (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
-  , compareDiff, noDiff
+  , merge, compareDiff, noDiff
   , Edit'(..), diff', patch'
   , TuplePatch(..)
   , EitherPatch(..)

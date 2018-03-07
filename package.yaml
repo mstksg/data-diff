@@ -40,16 +40,21 @@ library:
   - Diff
   - diff3
 
-# executables:
-#   generics-diff-exe:
-#     main:                Main.hs
-#     source-dirs:         app
-#     ghc-options:
-#     - -threaded
-#     - -rtsopts
-#     - -with-rtsopts=-N
-#     dependencies:
-#     - data-diff
+executables:
+  generics-diff-pandoc:
+    main:                pandoc-diff.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - data-diff
+    - pandoc
+    - data-default
+    - text
+    - pandoc-types
+    - generics-sop
 
 tests:
   generics-diff-test:
