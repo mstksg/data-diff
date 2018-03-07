@@ -1,10 +1,11 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Data.Diff.Sequence (
+module Data.Diff.Internal.Sequence (
     SeqPatch(..)
   , listDiff
   , listPatch
@@ -12,6 +13,7 @@ module Data.Diff.Sequence (
   , seqPatch
   , isListDiff
   , isListPatch
+  , LineOf
   ) where
 
 import           Control.Monad
@@ -23,6 +25,8 @@ import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
 import qualified Data.List.NonEmpty    as NE
 import qualified Data.Semigroup        as S
+import qualified Data.Text             as T
+import qualified Data.Text.Lazy        as TL
 import qualified Data.Vector           as V
 import qualified Data.Vector.Primitive as VP
 import qualified Data.Vector.Storable  as VS
@@ -103,14 +107,14 @@ seqPatch
 seqPatch f g d = fmap g . listPatch d . f
 
 isListDiff
-    :: (E.IsList l, Diff (E.Item l)) 
+    :: (E.IsList l, Diff (E.Item l))
     => l
     -> l
     -> SeqPatch (E.Item l)
 isListDiff = seqDiff E.toList
 
 isListPatch
-    :: (E.IsList l, Diff (E.Item l)) 
+    :: (E.IsList l, Diff (E.Item l))
     => SeqPatch (E.Item l)
     -> l
     -> Maybe l
@@ -157,3 +161,21 @@ instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     type Edit (VP.Vector a) = SeqPatch a
     diff  = isListDiff
     patch = isListPatch
+
+-- | Type synonym to represent a single line of text
+type LineOf = EqDiff
+
+-- | Line-by-line diff
+instance Diff T.Text where
+    type Edit T.Text = SeqPatch (LineOf T.Text)
+    diff  = seqDiff  (map EqDiff . T.splitOn "\n")
+    patch = seqPatch (map EqDiff . T.splitOn "\n")
+                     (T.intercalate "\n" . map getEqDiff)
+
+-- | Line-by-line diff
+instance Diff TL.Text where
+    type Edit TL.Text = SeqPatch (LineOf TL.Text)
+    diff  = seqDiff  (map EqDiff . TL.splitOn "\n")
+    patch = seqPatch (map EqDiff . TL.splitOn "\n")
+                     (TL.intercalate "\n" . map getEqDiff)
+

@@ -29,11 +29,10 @@ library:
   source-dirs: src
   exposed-modules:
   - Data.Diff
-  - Data.Diff.Generics
-  - Data.Diff.Sequence
   other-modules:
   - Data.Diff.Internal
   - Data.Diff.Internal.Generics
+  - Data.Diff.Internal.Sequence
   - Data.Type.Combinator.Util
   dependencies:
   - generics-sop
@@ -42,6 +41,7 @@ library:
   - diff3
   - vector
   - containers
+  - text
 
 executables:
   generics-diff-pandoc:

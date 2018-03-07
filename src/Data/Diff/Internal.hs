@@ -17,6 +17,8 @@ module Data.Diff.Internal (
   , merge
   , compareDiff
   , Edit'(..), diff', patch'
+  , Swap(..)
+  , EqDiff(..)
   , TuplePatch(..)
   , EitherPatch(..)
   , gpatchLevel
@@ -86,11 +88,6 @@ instance Monad MergeResult where
 class Patch a where
     -- | "Level" of patch
     patchLevel :: a -> DiffLevel
-    default patchLevel
-        :: (SOP.Generic a, Every (Every Patch) (SOP.Code a))
-        => a
-        -> DiffLevel
-    patchLevel = gpatchLevel
 
     -- | Left-biased parallel merge of two patches
     --
@@ -98,6 +95,13 @@ class Patch a where
     --
     -- Returns 'True' if conflict occurred (and was resolved)
     mergePatch :: a -> a -> MergeResult a
+
+    default patchLevel
+        :: (SOP.Generic a, Every (Every Patch) (SOP.Code a))
+        => a
+        -> DiffLevel
+    patchLevel = gpatchLevel
+
     default mergePatch
         :: (SOP.IsProductType a as, Every Patch as)
         => a
@@ -385,6 +389,29 @@ gpatchProd (GPP es) =
   where
     go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
     go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
+
+data Swap a = NoChange
+            | Replace a
+  deriving (Generic, Eq, Ord, Show, Read)
+
+newtype EqDiff a = EqDiff { getEqDiff :: a }
+  deriving (Generic, Eq, Ord, Show, Read)
+
+instance Patch (Swap a) where
+    patchLevel NoChange    = NoDiff
+    patchLevel (Replace _) = TotalDiff
+
+    mergePatch NoChange      NoChange      = NoConflict NoChange
+    mergePatch NoChange      r@(Replace _) = Conflict r
+    mergePatch l@(Replace _) _             = Conflict l
+
+instance Eq a => Diff (EqDiff a) where
+    type Edit (EqDiff a) = Swap a
+    diff (EqDiff x) (EqDiff y)
+        | x == y   = NoChange
+        | otherwise = Replace y
+    patch NoChange    x = Just x
+    patch (Replace x) _ = Just (EqDiff x)
 
 instance (Diff a, Diff b, Diff c) => Diff (a, b, c) where
     type Edit (a,b,c) = GPatchProd (a,b,c)

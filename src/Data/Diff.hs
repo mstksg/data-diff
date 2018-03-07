@@ -30,5 +30,5 @@ module Data.Diff (
   ) where
 
 import           Data.Diff.Internal
-import           Data.Diff.Generics
-import           Data.Diff.Sequence
+import           Data.Diff.Internal.Generics
+import           Data.Diff.Internal.Sequence
