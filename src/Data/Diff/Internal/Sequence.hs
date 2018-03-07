@@ -1,11 +1,13 @@
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 module Data.Diff.Internal.Sequence (
+  -- * Diff
     SeqPatch(..)
   , listDiff
   , listPatch
@@ -13,9 +15,14 @@ module Data.Diff.Internal.Sequence (
   , seqPatch
   , isListDiff
   , isListPatch
-  , listDiffBy
-  , seqDiffBy
-  , isListDiffBy
+  -- * Eq
+  , EqSeqPatch(..)
+  , eqListDiff
+  , eqListPatch
+  , eqSeqDiff
+  , eqSeqPatch
+  , eqIsListDiff
+  , eqIsListPatch
   ) where
 
 import           Control.Monad
@@ -25,8 +32,10 @@ import           Data.Function
 import           Data.Semigroup hiding (diff)
 import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
+import qualified Data.IntSet           as IS
 import qualified Data.List.NonEmpty    as NE
 import qualified Data.Semigroup        as S
+import qualified Data.Set              as S
 import qualified Data.Text             as T
 import qualified Data.Text.Lazy        as TL
 import qualified Data.Vector           as V
@@ -57,6 +66,9 @@ instance Diff a => Patch (SeqPatch a) where
       where
         (xs1, ys) = recover es1
         (xs2, zs) = recover es2
+
+newtype EqSeqPatch a = ESP { getESP :: SeqPatch (EqDiff a) }
+  deriving (Show, Eq, Patch)
 
 recover :: forall a. [D.Diff a] -> ([a], [a])
 recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
@@ -99,13 +111,12 @@ listDiff
     -> SeqPatch a
 listDiff = listDiffBy $ \x y -> compareDiff x y /= TotalDiff
 
-seqDiffBy
-    :: (a -> a -> Bool)
-    -> (t -> [a])
-    -> t
-    -> t
-    -> SeqPatch a
-seqDiffBy f g = listDiffBy f `on` g
+eqListDiff
+    :: Eq a
+    => [a]
+    -> [a]
+    -> EqSeqPatch a
+eqListDiff x = ESP . listDiff (EqDiff <$> x) . fmap EqDiff
 
 seqDiff
     :: Diff a
@@ -113,7 +124,15 @@ seqDiff
     -> t
     -> t
     -> SeqPatch a
-seqDiff = seqDiffBy $ \x y -> compareDiff x y /= TotalDiff
+seqDiff f = listDiff `on` f
+
+eqSeqDiff
+    :: Eq a
+    => (t -> [a])
+    -> t
+    -> t
+    -> EqSeqPatch a
+eqSeqDiff f = eqListDiff `on` f
 
 seqPatch
     :: Eq a
@@ -124,14 +143,14 @@ seqPatch
     -> Maybe t
 seqPatch f g d = fmap g . listPatch d . f
 
-isListDiffBy
-    :: (E.IsList l, Diff (E.Item l))
-    => (E.Item l -> E.Item l -> Bool)
-    -> l
-    -> l
-    -> SeqPatch (E.Item l)
-isListDiffBy f = seqDiffBy f E.toList
-
+eqSeqPatch
+    :: Eq a
+    => (t -> [a])
+    -> ([a] -> t)
+    -> EqSeqPatch a
+    -> t
+    -> Maybe t
+eqSeqPatch f g d = fmap g . eqListPatch d . f
 
 isListDiff
     :: (E.IsList l, Diff (E.Item l))
@@ -140,12 +159,26 @@ isListDiff
     -> SeqPatch (E.Item l)
 isListDiff = seqDiff E.toList
 
+eqIsListDiff
+    :: (E.IsList l, Eq (E.Item l))
+    => l
+    -> l
+    -> EqSeqPatch (E.Item l)
+eqIsListDiff = eqSeqDiff E.toList
+
 isListPatch
     :: (E.IsList l, Diff (E.Item l))
     => SeqPatch (E.Item l)
     -> l
     -> Maybe l
 isListPatch = seqPatch E.toList E.fromList
+
+eqIsListPatch
+    :: (E.IsList l, Eq (E.Item l))
+    => EqSeqPatch (E.Item l)
+    -> l
+    -> Maybe l
+eqIsListPatch = eqSeqPatch E.toList E.fromList
 
 listPatch
     :: Eq a
@@ -163,6 +196,13 @@ listPatch (SP es0) = go es0
       x' : xs' <- pure xs
       guard (x == x')
       go es xs'
+
+eqListPatch
+    :: Eq a
+    => EqSeqPatch a
+    -> [a]
+    -> Maybe [a]
+eqListPatch p = (fmap . map) getEqDiff . listPatch (getESP p) . map EqDiff
 
 instance Diff a => Diff [a] where
     type Edit [a] = SeqPatch a
@@ -191,12 +231,22 @@ instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
 
 -- | Line-by-line diff
 instance Diff T.Text where
-    type Edit T.Text = SeqPatch T.Text
-    diff  = seqDiffBy (==) (T.splitOn "\n")
-    patch = seqPatch       (T.splitOn "\n") (T.intercalate "\n")
+    type Edit T.Text = EqSeqPatch T.Text
+    diff  = eqSeqDiff  (T.splitOn "\n")
+    patch = eqSeqPatch (T.splitOn "\n") (T.intercalate "\n")
 
 -- | Line-by-line diff
 instance Diff TL.Text where
-    type Edit TL.Text = SeqPatch TL.Text
-    diff  = seqDiffBy (==) (TL.splitOn "\n")
-    patch = seqPatch       (TL.splitOn "\n") (TL.intercalate "\n")
+    type Edit TL.Text = EqSeqPatch TL.Text
+    diff  = eqSeqDiff  (TL.splitOn "\n")
+    patch = eqSeqPatch (TL.splitOn "\n") (TL.intercalate "\n")
+
+instance Ord a => Diff (S.Set a) where
+    type Edit (S.Set a) = EqSeqPatch a
+    diff  = eqSeqDiff  S.toList
+    patch = eqSeqPatch S.toList S.fromList
+
+instance Diff IS.IntSet where
+    type Edit IS.IntSet = EqSeqPatch Int
+    diff  = eqSeqDiff  IS.toList
+    patch = eqSeqPatch IS.toList IS.fromList
