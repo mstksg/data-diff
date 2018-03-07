@@ -80,9 +80,6 @@ SP :: [Diff a] -> SeqPatch a
 [getSP] :: SeqPatch a -> [Diff a]
 seqDiff :: Diff a => (t -> [a]) -> t -> t -> SeqPatch a
 seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatch a -> t -> Maybe t
-
--- | Type synonym to represent a single line of text
-type LineOf = EqDiff
 newtype GPatch a
 GP :: SumDiff Tuple (Prod Edit') (Code a) -> GPatch a
 [getGP] :: GPatch a -> SumDiff Tuple (Prod Edit') (Code a)
