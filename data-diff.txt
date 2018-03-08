@@ -40,9 +40,7 @@ patchLevel :: (Patch a, Generic a, Every (Every Patch) (Code a)) => a -> DiffLev
 --   Returns <a>True</a> if conflict occurred (and was resolved)
 mergePatch :: (Patch a, IsProductType a as, Every Patch as) => a -> a -> MergeResult a
 data DiffLevel
-NoDiff :: DiffLevel
-PartialDiff :: DiffLevel
-TotalDiff :: DiffLevel
+DL :: Double -> Double -> DiffLevel
 data MergeResult a
 Incompatible :: MergeResult a
 Conflict :: a -> MergeResult a
@@ -95,3 +93,10 @@ gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SDSame] :: (Index as :&: (Index as :&: g)) a -> SumDiff f g as
 [SDDiff] :: Index as a -> (Index as :&: f) b -> SumDiff f g as
+data ValDiff a
+VDDel :: ValDiff a
+VDIns :: a -> ValDiff a
+VDMod :: (Edit a) -> ValDiff a
+newtype MapDiff m a
+MD :: m (ValDiff a) -> MapDiff m a
+[getMD] :: MapDiff m a -> m (ValDiff a)
