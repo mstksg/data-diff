@@ -32,12 +32,13 @@ import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Function
+import           Data.Hashable
 import           Data.Semigroup hiding (diff)
 import           GHC.Generics          (Generic)
 import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
+import qualified Data.HashSet          as HS
 import qualified Data.IntSet           as IS
-import qualified Data.List.NonEmpty    as NE
 import qualified Data.Semigroup        as S
 import qualified Data.Set              as S
 import qualified Data.Text             as T
@@ -52,9 +53,7 @@ newtype SeqPatch a = SP { getSP :: [D.Diff a] }
   deriving (Show, Eq, Generic)
 
 instance Diff a => Patch (SeqPatch a) where
-    patchLevel = maybe NoDiff (sconcat . fmap dLevel)
-               . NE.nonEmpty
-               . getSP
+    patchLevel = catLevels . map dLevel . getSP
       where
         dLevel :: D.Diff a -> DiffLevel
         dLevel (D.First _ ) = TotalDiff
@@ -264,3 +263,8 @@ instance Diff IS.IntSet where
     type Edit IS.IntSet = EqSeqPatch Int
     diff  = eqSeqDiff  IS.toList
     patch = eqSeqPatch IS.toList IS.fromList
+
+instance (Hashable a, Eq a) => Diff (HS.HashSet a) where
+    type Edit (HS.HashSet a) = EqSeqPatch a
+    diff  = eqSeqDiff  HS.toList
+    patch = eqSeqPatch HS.toList HS.fromList

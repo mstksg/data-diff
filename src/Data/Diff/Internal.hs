@@ -14,7 +14,7 @@
 module Data.Diff.Internal (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
-  , merge
+  , merge, catLevels
   , compareDiff
   , Edit'(..), diff', patch'
   , Swap(..), eqDiff, eqPatch
@@ -34,6 +34,7 @@ module Data.Diff.Internal (
 
 import           Control.Monad
 import           Data.Diff.Internal.Generics
+import           Data.Foldable
 import           Data.Function
 import           Data.Semigroup              (Semigroup(..))
 import           Data.Type.Combinator
@@ -41,13 +42,14 @@ import           Data.Type.Combinator.Util
 import           Data.Type.Conjunction
 import           Data.Type.Equality
 import           Data.Type.Index
-import           Data.Type.Product
+import           Data.Type.Product hiding    (toList)
 import           Data.Type.Sum
 import           GHC.Generics                (Generic)
 import           Type.Class.Higher
 import           Type.Class.Witness
 import           Type.Family.Constraint
 import           Type.Reflection
+import qualified Data.List.NonEmpty          as NE
 import qualified GHC.Generics                as G
 import qualified Generics.SOP                as SOP
 
@@ -62,6 +64,12 @@ instance Semigroup DiffLevel where
     PartialDiff <> _         = PartialDiff
     TotalDiff   <> TotalDiff = TotalDiff
     TotalDiff   <> _         = PartialDiff
+
+catLevels
+    :: Foldable f
+    => f DiffLevel
+    -> DiffLevel
+catLevels = maybe NoDiff sconcat . NE.nonEmpty . toList
 
 data MergeResult a = Incompatible
                    | Conflict   a

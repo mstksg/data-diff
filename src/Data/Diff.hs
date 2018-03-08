@@ -3,7 +3,7 @@
 module Data.Diff (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
-  , merge, compareDiff
+  , merge, compareDiff, catLevels
   , Edit'(..), diff', patch'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
