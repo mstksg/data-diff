@@ -456,3 +456,28 @@ instance Diff Char where
     type Edit Char = Swap Char
     diff  = eqDiff
     patch = eqPatch
+
+instance Diff Bool where
+    type Edit Bool = Swap Bool
+    diff  = eqDiff
+    patch = eqPatch
+
+instance Diff Int where
+    type Edit Int = Swap Int
+    diff  = eqDiff
+    patch = eqPatch
+
+instance Diff Integer where
+    type Edit Integer = Swap Integer
+    diff  = eqDiff
+    patch = eqPatch
+
+instance Diff Double where
+    type Edit Double = Swap Double
+    diff  = eqDiff
+    patch = eqPatch
+
+instance Diff Float where
+    type Edit Float = Swap Float
+    diff  = eqDiff
+    patch = eqPatch

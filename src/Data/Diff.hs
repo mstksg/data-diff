@@ -33,4 +33,5 @@ module Data.Diff (
 
 import           Data.Diff.Internal
 import           Data.Diff.Internal.Generics
+import           Data.Diff.Internal.Map
 import           Data.Diff.Internal.Sequence
