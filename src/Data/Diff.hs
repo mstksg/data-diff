@@ -7,8 +7,6 @@ module Data.Diff (
   , Edit'(..), diff', patch'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
-  , TuplePatch(..)
-  , EitherPatch(..)
   -- * Generic implementations
   -- ** Patch
   , gpatchLevel

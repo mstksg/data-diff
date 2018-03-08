@@ -62,7 +62,7 @@ instance Diff a => Patch (SeqPatch a) where
     mergePatch (SP es1) (SP es2)
         | xs1 == xs2 = listDiff xs1
                      . concat
-                   <$> traverse dehunk (D.diff3By (\x y -> diffPercent (compareDiff x y) < 0.5)
+                   <$> traverse dehunk (D.diff3By (\x y -> diffPercentage x y < 0.5)
                                                   ys xs1 zs
                                        )
         | otherwise  = Incompatible
@@ -114,7 +114,7 @@ listDiff
     => [a]
     -> [a]
     -> SeqPatch a
-listDiff = listDiffBy $ \x y -> diffPercent (compareDiff x y) < 0.5
+listDiff = listDiffBy $ \x y -> diffPercentage x y < 0.5
 
 eqListDiff
     :: Eq a

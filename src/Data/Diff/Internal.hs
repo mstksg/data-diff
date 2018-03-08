@@ -1,28 +1,28 @@
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE DefaultSignatures    #-}
-{-# LANGUAGE DeriveFunctor        #-}
-{-# LANGUAGE DeriveGeneric        #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE PatternSynonyms      #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns         #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternSynonyms       #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 module Data.Diff.Internal (
     Diff(..)
   , Patch(..), DiffLevel(.., NoDiff, TotalDiff), MergeResult(..)
-  , merge, catLevels, normDL, diffPercent
+  , merge, catLevels, normDL, dlPercent, diffPercentage
   , compareDiff
   , Edit'(..), diff', patch'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
-  , TuplePatch(..)
-  , EitherPatch(..)
   , gpatchLevel
   , gmergePatch
   , GPatch(..)
@@ -83,8 +83,8 @@ pattern TotalDiff x <- (isTot->Just x)
 normDL :: Double -> DiffLevel -> DiffLevel
 normDL s (DL x t) = DL (x / t * s) s
 
-diffPercent :: DiffLevel -> Double
-diffPercent (DL x t) = x / t
+dlPercent :: DiffLevel -> Double
+dlPercent (DL x t) = x / t
 
 catLevels
     :: Foldable f
@@ -148,26 +148,37 @@ class (Eq a, Patch (Edit a)) => Diff a where
     patch     :: Edit a -> a -> Maybe a
 
     default diff
-        :: ( Edit a ~ GPatch a
-           , SOP.Generic a
-           , Every (Every Diff) (SOP.Code a)
-           , Every Typeable (SOP.Code a)
-           )
+        :: DefaultDiff (Edit a) a
         => a
         -> a
         -> Edit a
-    diff = gdiff'
+    diff = defaultDiff
 
     default patch
-        :: ( Edit a ~ GPatch a
-           , SOP.Generic a
-           , Every (Every Diff) (SOP.Code a)
-           )
+        :: DefaultDiff (Edit a) a
         => Edit a
         -> a
         -> Maybe a
-    patch = gpatch
+    patch = defaultPatch
 
+    -- default patch
+    --     :: ( Edit a ~ GPatch a
+    --        , SOP.Generic a
+    --        , Every (Every Diff) (SOP.Code a)
+    --        )
+    --     => Edit a
+    --     -> a
+    --     -> Maybe a
+    -- patch = gpatch
+
+class DefaultDiff p a where
+    defaultDiff :: a -> a -> p
+    defaultPatch :: p -> a -> Maybe a
+
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
+      => DefaultDiff (GPatch a) a where
+    defaultDiff  = gdiff'
+    defaultPatch = gpatch
 
 -- | Left-biased merge of two diffable values.
 merge :: Diff a => a -> a -> a -> MergeResult a
@@ -190,61 +201,11 @@ diff' x y = Edit' (diff x y)
 patch' :: Diff a => Edit' a -> a -> Maybe a
 patch' (Edit' x) = patch x
 
+diffPercentage :: Diff a => a -> a -> Double
+diffPercentage x y = dlPercent $ patchLevel (diff x y)
+
 compareDiff :: Diff a => a -> a -> DiffLevel
 compareDiff x y = patchLevel (diff x y)
-
-data TuplePatch a b = TP (Edit a) (Edit b)
-    deriving (Generic)
-instance SOP.Generic (TuplePatch a b)
-
-instance (Patch (Edit a), Patch (Edit b)) => Patch (TuplePatch a b) where
-    patchLevel = gpatchLevel
-    mergePatch = gmergePatch
-
-instance (Diff a, Diff b) => Diff (a, b) where
-    type Edit (a, b)         = TuplePatch a b
-    diff (x1, y1) (x2, y2)   = TP (diff x1 x2) (diff y1 y2)
-    patch (TP ex ey) (x, y)  = (,) <$> patch ex x <*> patch ey y
-
-data EitherPatch a b = L2L (Edit a)
-                     | L2R b
-                     | R2L a
-                     | R2R (Edit b)
-
-instance (Patch (Edit a), Patch (Edit b), Eq a, Eq b) => Patch (EitherPatch a b) where
-    patchLevel (L2L e) = patchLevel e
-    patchLevel (L2R _) = TotalDiff 1
-    patchLevel (R2L _) = TotalDiff 1
-    patchLevel (R2R e) = patchLevel e
-
-    mergePatch   (L2L e1) (L2L e2) = L2L <$> mergePatch e1 e2
-    mergePatch   (L2L e1) (L2R _ ) = Conflict (L2L e1)
-    mergePatch   (L2L _ ) (R2L _ ) = Incompatible
-    mergePatch   (L2L _ ) (R2R _ ) = Incompatible
-    mergePatch l@(L2R _ ) (L2L _ ) = Conflict l
-    mergePatch l@(L2R _ ) (L2R _ ) = Conflict l
-    mergePatch   (L2R _ ) (R2L _ ) = Incompatible
-    mergePatch   (L2R _ ) (R2R _ ) = Incompatible
-    mergePatch   (R2L _ ) (L2L _ ) = Incompatible
-    mergePatch   (R2L _ ) (L2R _ ) = Incompatible
-    mergePatch l@(R2L _ ) (R2L _ ) = Conflict l
-    mergePatch l@(R2L _ ) (R2R _ ) = Conflict l
-    mergePatch   (R2R _ ) (L2L _ ) = Incompatible
-    mergePatch   (R2R _ ) (L2R _ ) = Incompatible
-    mergePatch l@(R2R _ ) (R2L _ ) = Conflict l
-    mergePatch   (R2R e1) (R2R e2) = R2R <$> mergePatch e1 e2
-
-instance (Diff a, Diff b) => Diff (Either a b) where
-    type Edit (Either a b) = EitherPatch a b
-    diff (Left  x) (Left  y) = L2L (diff x y)
-    diff (Left  _) (Right y) = L2R y
-    diff (Right _) (Left  y) = R2L y
-    diff (Right x) (Right y) = R2R (diff x y)
-    patch (L2L e) (Left  x) = Left <$> patch e x
-    patch (L2R y) (Left  _) = Just (Right y)
-    patch (R2L x) (Right _) = Just (Left  x)
-    patch (R2R e) (Right y) = Right <$> patch e y
-    patch _       _         = Nothing
 
 gpatchLevel
     :: forall a ass. (SOP.Generic a, SOP.Code a ~ ass, Every (Every Patch) ass)
@@ -386,6 +347,10 @@ instance (SOP.IsProductType a as, Every Diff as, Every (Comp Patch Edit') as) =>
     patchLevel (GPP es) = prodPatchLevel es
     mergePatch (GPP es1) (GPP es2) = GPP <$> prodMergePatch es1 es2
 
+instance (SOP.IsProductType a as, Every Diff as) => DefaultDiff (GPatchProd a) a where
+    defaultDiff  = gdiffProd
+    defaultPatch = gpatchProd
+
 gdiffProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)
     => a
@@ -440,62 +405,47 @@ instance Patch (Swap a) where
     mergePatch NoChange      r@(Replace _) = Conflict r
     mergePatch l@(Replace _) _             = Conflict l
 
+instance Eq a => DefaultDiff (Swap a) a where
+    defaultDiff  = eqDiff
+    defaultPatch = eqPatch
+
 instance Eq a => Diff (EqDiff a) where
     type Edit (EqDiff a) = Swap a
     diff = eqDiff `on` getEqDiff
     patch p = fmap EqDiff . eqPatch p . getEqDiff
 
+instance (Diff a, Diff b) => Diff (a, b) where
+    type Edit (a,b) = GPatchProd (a,b)
+
 instance (Diff a, Diff b, Diff c) => Diff (a, b, c) where
     type Edit (a,b,c) = GPatchProd (a,b,c)
-    diff  = gdiffProd
-    patch = gpatchProd
 
 instance (Diff a, Diff b, Diff c, Diff d) => Diff (a, b, c, d) where
     type Edit (a,b,c,d) = GPatchProd (a,b,c,d)
-    diff  = gdiffProd
-    patch = gpatchProd
 
 instance (Diff a, Diff b, Diff c, Diff d, Diff e) => Diff (a, b, c, d, e) where
     type Edit (a,b,c,d,e) = GPatchProd (a,b,c,d,e)
-    diff  = gdiffProd
-    patch = gpatchProd
 
 instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f) => Diff (a, b, c, d, e, f) where
     type Edit (a,b,c,d,e,f) = GPatchProd (a,b,c,d,e,f)
-    diff  = gdiffProd
-    patch = gpatchProd
 
 instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f, Diff g) => Diff (a, b, c, d, e, f, g) where
     type Edit (a,b,c,d,e,f,g) = GPatchProd (a,b,c,d,e,f,g)
-    diff  = gdiffProd
-    patch = gpatchProd
 
 instance Diff Char where
     type Edit Char = Swap Char
-    diff  = eqDiff
-    patch = eqPatch
 
 instance Diff Bool where
     type Edit Bool = Swap Bool
-    diff  = eqDiff
-    patch = eqPatch
 
 instance Diff Int where
     type Edit Int = Swap Int
-    diff  = eqDiff
-    patch = eqPatch
 
 instance Diff Integer where
     type Edit Integer = Swap Integer
-    diff  = eqDiff
-    patch = eqPatch
 
 instance Diff Double where
     type Edit Double = Swap Double
-    diff  = eqDiff
-    patch = eqPatch
 
 instance Diff Float where
     type Edit Float = Swap Float
-    diff  = eqDiff
-    patch = eqPatch
