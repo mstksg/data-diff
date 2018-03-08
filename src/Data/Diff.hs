@@ -29,6 +29,9 @@ module Data.Diff (
   , gdiffProd
   , gpatchProd
   , SumDiff(..)
+  -- ** Maps
+  , ValDiff(..)
+  , MapDiff(..)
   ) where
 
 import           Data.Diff.Internal

@@ -56,13 +56,13 @@ instance Diff a => Patch (SeqPatch a) where
     patchLevel = catLevels . map dLevel . getSP
       where
         dLevel :: D.Diff a -> DiffLevel
-        dLevel (D.First _ ) = TotalDiff
-        dLevel (D.Second _) = TotalDiff
+        dLevel (D.First _ ) = TotalDiff 1
+        dLevel (D.Second _) = TotalDiff 1
         dLevel (D.Both x y) = compareDiff x y
     mergePatch (SP es1) (SP es2)
         | xs1 == xs2 = listDiff xs1
                      . concat
-                   <$> traverse dehunk (D.diff3By (\x y -> compareDiff x y /= TotalDiff)
+                   <$> traverse dehunk (D.diff3By (\x y -> diffPercent (compareDiff x y) < 0.5)
                                                   ys xs1 zs
                                        )
         | otherwise  = Incompatible
@@ -87,10 +87,12 @@ dehunk
     => D.Hunk a
     -> MergeResult [a]
 dehunk = \case
-    D.LeftChange  xs     -> NoConflict xs
-    D.RightChange ys     -> NoConflict ys
-    D.Unchanged   xyzs   -> traverse go xyzs
-    D.Conflict    xs _ _ -> Conflict xs
+    D.LeftChange  xs      -> NoConflict xs
+    D.RightChange ys      -> NoConflict ys
+    D.Unchanged   xyzs    -> traverse go xyzs
+    D.Conflict    xs _ ys
+      | xs == ys  -> NoConflict xs
+      | otherwise -> Conflict xs
   where
     go :: (a, a, a) -> MergeResult a
     go (x,o,y) = do
@@ -112,7 +114,7 @@ listDiff
     => [a]
     -> [a]
     -> SeqPatch a
-listDiff = listDiffBy $ \x y -> compareDiff x y /= TotalDiff
+listDiff = listDiffBy $ \x y -> diffPercent (compareDiff x y) < 0.5
 
 eqListDiff
     :: Eq a

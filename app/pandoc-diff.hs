@@ -47,6 +47,7 @@ printDoc = either undefined id . P.runPure . P.writeMarkdown def
 main :: IO ()
 main = do
     p1:p2:p3:_ <- traverse loadDoc =<< getArgs
+    print p1
     case merge p1 p2 p3 of
       Incompatible -> putStrLn "no merge"
       Conflict p   -> putStrLn "conflict" >> T.putStrLn (printDoc p)

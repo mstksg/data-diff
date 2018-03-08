@@ -10,21 +10,21 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Data.Diff.Internal.Map (
-    -- MapSource(..)
-  -- , MapDiff(..)
+    ValDiff(..)
+  , MapDiff(..)
   ) where
 
+-- import           Data.Semigroup hiding (diff)
+-- import qualified Data.Set              as S
 import           Control.Monad
 import           Data.Diff.Internal
 import           Data.Either
 import           Data.Foldable
 import           Data.Hashable
-import           Data.Semigroup hiding (diff)
-import           GHC.Generics          (Generic)
-import qualified Data.HashMap.Lazy     as HM
-import qualified Data.IntMap           as IM
-import qualified Data.Map              as M
-import qualified Data.Set              as S
+import           GHC.Generics             (Generic)
+import qualified Data.HashMap.Lazy        as HM
+import qualified Data.IntMap              as IM
+import qualified Data.Map                 as M
 
 data ValDiff a = VDDel
                | VDIns a
@@ -61,11 +61,11 @@ splitVD (VDMod e) = Right e
 
 fpl :: (Diff a, Foldable m) => MapDiff m a -> DiffLevel
 fpl (partitionEithers . map splitVD . toList . getMD -> (lr, b))
-     | null lr   = bLevel
-     | null b    = NoDiff
-     | otherwise = TotalDiff <> bLevel
+     | null lr   = catLevels bLevels
+     | null b    = NoDiff 1
+     | otherwise = catLevels $ (TotalDiff 1 <$ toList lr) ++ bLevels
   where
-    bLevel  = catLevels . map patchLevel $ b
+    bLevels = map patchLevel b
 
 fmp :: (Traversable m, Diff a)
     => (forall b. (b -> b -> b) -> m b -> m b -> m b)
@@ -103,7 +103,7 @@ md unions difference intersect m1 m2 = MD $ unions [ VDDel <$ l
   where
     l = difference m1 m2
     r = difference m2 m1
-    b = intersect m1 m2
+    b = m1 `intersect` m2
 
 mp  :: forall m k a. ()
     => (forall b c. (b -> k -> c -> b) -> b -> m c -> b)
