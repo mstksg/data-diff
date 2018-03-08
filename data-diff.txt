@@ -51,6 +51,7 @@ NoConflict :: a -> MergeResult a
 -- | Left-biased merge of two diffable values.
 merge :: Diff a => a -> a -> a -> MergeResult a
 compareDiff :: Diff a => a -> a -> DiffLevel
+catLevels :: Foldable f => f DiffLevel -> DiffLevel
 newtype Edit' a
 Edit' :: Edit a -> Edit' a
 [getEdit'] :: Edit' a -> Edit a
