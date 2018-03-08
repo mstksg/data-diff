@@ -207,26 +207,33 @@ eqListPatch
     -> Maybe [a]
 eqListPatch p = (fmap . map) getEqDiff . listPatch (getESP p) . map EqDiff
 
+-- | Items that aren't completely different are considered modifications,
+-- not insertions/deletions.  If this is not desired behavior, map with
+-- 'EqDiff'.
 instance Diff a => Diff [a] where
     type Edit [a] = SeqPatch a
     diff  = listDiff
     patch = listPatch
 
+-- | See notes for list instance.
 instance Diff a => Diff (V.Vector a) where
     type Edit (V.Vector a) = SeqPatch a
     diff  = isListDiff
     patch = isListPatch
 
+-- | See notes for list instance.
 instance (Diff a, VS.Storable a) => Diff (VS.Vector a) where
     type Edit (VS.Vector a) = SeqPatch a
     diff  = isListDiff
     patch = isListPatch
 
+-- | See notes for list instance.
 instance (Diff a, VU.Unbox a) => Diff (VU.Vector a) where
     type Edit (VU.Vector a) = SeqPatch a
     diff  = isListDiff
     patch = isListPatch
 
+-- | See notes for list instance.
 instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     type Edit (VP.Vector a) = SeqPatch a
     diff  = isListDiff
@@ -236,6 +243,7 @@ instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
 newtype Lines = Lines { getLines :: String }
     deriving (Show, Eq, Ord, Generic, Read)
 
+-- | Line-by-line diff of 'String's
 instance Diff Lines where
     type Edit Lines = EqSeqPatch String
     diff  = eqSeqDiff  (map T.unpack . T.splitOn "\n" . T.pack . getLines)
@@ -254,16 +262,19 @@ instance Diff TL.Text where
     diff  = eqSeqDiff  (TL.splitOn "\n")
     patch = eqSeqPatch (TL.splitOn "\n") (TL.intercalate "\n")
 
+-- | Changes are purely inclusion/exclusion
 instance Ord a => Diff (S.Set a) where
     type Edit (S.Set a) = EqSeqPatch a
     diff  = eqSeqDiff  S.toList
     patch = eqSeqPatch S.toList S.fromList
 
+-- | Changes are purely inclusion/exclusion
 instance Diff IS.IntSet where
     type Edit IS.IntSet = EqSeqPatch Int
     diff  = eqSeqDiff  IS.toList
     patch = eqSeqPatch IS.toList IS.fromList
 
+-- | Changes are purely inclusion/exclusion
 instance (Hashable a, Eq a) => Diff (HS.HashSet a) where
     type Edit (HS.HashSet a) = EqSeqPatch a
     diff  = eqSeqDiff  HS.toList

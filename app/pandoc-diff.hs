@@ -12,10 +12,12 @@ import qualified Text.Pandoc        as P
 
 instance SOP.Generic P.Pandoc
 instance SOP.Generic P.Meta
+instance SOP.Generic P.MetaValue
 instance SOP.Generic P.Block
 
 -- instance Diff P.Pandoc where
 -- instance Diff P.Meta where
+-- instance Diff P.MetaValue where
 -- instance Diff P.Block where
 
 loadDoc :: FilePath -> IO P.Pandoc
