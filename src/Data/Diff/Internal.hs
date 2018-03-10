@@ -34,8 +34,10 @@ module Data.Diff.Internal (
   , gpatchProd
   ) where
 
+-- import           Control.Applicative
 -- import           Data.Foldable
 -- import qualified Data.List.NonEmpty       as NE
+-- import qualified GHC.Generics             as G
 import           Control.Monad
 import           Data.Diff.Internal.Generics
 import           Data.Function
@@ -52,7 +54,6 @@ import           Type.Class.Higher
 import           Type.Class.Witness
 import           Type.Family.Constraint
 import           Type.Reflection
-import qualified GHC.Generics                as G
 import qualified Generics.SOP                as SOP
 
 data DiffLevel = DL Double Double
@@ -146,6 +147,7 @@ class (Eq a, Patch (Edit a)) => Diff a where
     type instance Edit a = GPatch a
     diff      :: a -> a -> Edit a
     patch     :: Edit a -> a -> Maybe a
+    -- undiff    :: Edit a -> (a, a)
 
     default diff
         :: DefaultDiff (Edit a) a
@@ -235,6 +237,7 @@ gmergePatch x0 = fmap (SOP.to . sopSop . InL)
          . SOP.from
 
 
+-- TODO: case w/o typable
 newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every (Comp Patch Edit')) (SOP.Code a)) => Patch (GPatch a) where
@@ -246,11 +249,10 @@ gpPatchLevel
     => GPatch a
     -> DiffLevel
 gpPatchLevel = \case
-    GP (SDSame (i :&: j :&: xs))
-        | i == j    -> prodPatchLevel xs
-                          \\ every @_ @(Every Diff) i
-        | otherwise -> catLevels [TotalDiff 1, prodPatchLevel xs]
-                          \\ every @_ @(Every Diff) i
+    GP (SDEdit (i :&: xs))       -> prodPatchLevel xs
+                                      \\ every @_ @(Every Diff) i
+    GP (SDSame (i :&: _ :&: xs)) -> catLevels [TotalDiff 1, prodPatchLevel xs]
+                                      \\ every @_ @(Every Diff) i
     GP (SDDiff _ _) -> TotalDiff 1
 
 prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
@@ -259,30 +261,75 @@ prodPatchLevel = catLevels . ifoldMap1 go
     go :: Index as a -> Edit' a -> [DiffLevel]
     go i (Edit' e) = [patchLevel e] \\ every @_ @Diff i
 
+-- TODO: factor out i1
 gpMergePatch
-    :: (Every (Every (Comp Patch Edit')) (SOP.Code a))
+    :: (Every (Every (Comp Patch Edit')) (SOP.Code a), Every (Every Diff) (SOP.Code a))
     => GPatch a
     -> GPatch a
     -> MergeResult (GPatch a)
 gpMergePatch = \case
-    l@(GP (SDSame (i1 :&: j1 :&: es1))) -> \case
+    l@(GP (SDEdit (i1 :&: es1))) -> \case
+      GP (SDEdit (i2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl -> do
+          es <- prodMergePatch es1 es2      \\ every @_ @(Every (Comp Patch Edit')) i1
+          pure (GP (SDEdit (i1 :&: es)))
+        Nothing -> Incompatible
       GP (SDSame (i2 :&: j2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl -> do
+          es <- prodMergePatch es1 es2      \\ every @_ @(Every (Comp Patch Edit')) i1
+          pure (GP (SDSame (i2 :&: j2 :&: es)))
+        Nothing -> Incompatible
+      r@(GP (SDDiff i2 (_ :&: _))) -> case testEquality i1 i2 of
         Just Refl ->
-          let k = GP . (\es -> SDSame (i1 :&: j1 :&: es))
-                   <$> prodMergePatch es1 es2 \\ every @_ @(Every (Comp Patch Edit')) i1
-          in  case testEquality j1 j2 of
-                Just Refl -> k
-                Nothing   -> Conflict id <*> k
+          -- TODO: factor out
+          let levels :: [DiffLevel]
+              levels = ifoldMap1 (\i e -> [patchLevel e] \\ every @_ @(Comp Patch Edit') i) es1
+                          \\ every @_ @(Every (Comp Patch Edit')) i1
+          in  case catLevels levels of
+                NoDiff _ -> NoConflict r
+                _        -> Conflict l
+        Nothing   -> Incompatible
+    l@(GP (SDSame (i1 :&: j1 :&: es1))) -> \case
+      GP (SDEdit (i2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl -> do
+          es <- prodMergePatch es1 es2      \\ every @_ @(Every (Comp Patch Edit')) i1
+          pure (GP (SDSame (i1 :&: j1 :&: es)))
+        Nothing -> Incompatible
+      GP (SDSame (i2 :&: j2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl -> do
+          es <- prodMergePatch es1 es2      \\ every @_ @(Every (Comp Patch Edit')) i1
+          case testEquality j1 j2 of
+            Just Refl -> NoConflict . GP $ SDSame (i1 :&: j1 :&: es)
+            Nothing   -> Conflict   . GP $ SDSame (i1 :&: j1 :&: es)
         Nothing -> Incompatible
       GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
         Just Refl -> Conflict l
         Nothing   -> Incompatible
-    l@(GP (SDDiff i1 (_ :&: _))) -> \case
+    l@(GP (SDDiff i1 (j1 :&: es1))) -> \case
+      GP (SDEdit (i2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl ->
+          let levels :: [DiffLevel]
+              levels = ifoldMap1 (\i e -> [patchLevel e] \\ every @_ @(Comp Patch Edit') i) es2
+                          \\ every @_ @(Every (Comp Patch Edit')) i2
+          in  case catLevels levels of
+                NoDiff _ -> NoConflict l
+                _        -> Conflict l
+        Nothing -> Incompatible
       GP (SDSame (i2 :&: _ :&: _)) -> case testEquality i1 i2 of
         Just Refl -> Conflict l
         Nothing   -> Incompatible
-      GP (SDDiff i2 (_ :&: _)) -> case testEquality i1 i2 of
-        Just Refl -> Conflict l
+      GP (SDDiff i2 (j2 :&: es2)) -> case testEquality i1 i2 of
+        Just Refl -> case testEquality j1 j2 of
+          Just Refl -> do
+            es <- izipProdWithA (\i (I e1) (I e2) ->
+                                    I <$> if e1 == e2 \\ every @_ @Diff i
+                                      then NoConflict e1
+                                      else Conflict   e1
+                                )
+                    es1
+                    es2     \\ every @_ @(Every Diff) j1
+            pure $ GP (SDDiff i1 (j1 :&: es))
+          Nothing   -> Conflict l
         Nothing   -> Incompatible
 
 prodMergePatch
@@ -290,13 +337,13 @@ prodMergePatch
     => Prod Edit' as
     -> Prod Edit' as
     -> MergeResult (Prod Edit' as)
-prodMergePatch xs = traverse1 G.unComp1 . izipProdWith go xs
+prodMergePatch = izipProdWithA go
   where
     go  :: Index as a
         -> Edit' a
         -> Edit' a
-        -> (MergeResult G.:.: Edit') a
-    go i x y = G.Comp1 (mergePatch x y) \\ every @_ @(Comp Patch Edit') i
+        -> MergeResult (Edit' a)
+    go i x y = mergePatch x y \\ every @_ @(Comp Patch Edit') i
 
 gdiff
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
@@ -431,6 +478,9 @@ instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f) => Diff (a, b, c, d, e
 
 instance (Diff a, Diff b, Diff c, Diff d, Diff e, Diff f, Diff g) => Diff (a, b, c, d, e, f, g) where
     type Edit (a,b,c,d,e,f,g) = GPatchProd (a,b,c,d,e,f,g)
+
+-- TODO: case w/o typeable
+instance (Diff a, Diff b, Typeable a, Typeable b) => Diff (Either a b)
 
 instance Diff Char where
     type Edit Char = Swap Char

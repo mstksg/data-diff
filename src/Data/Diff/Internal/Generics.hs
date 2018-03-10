@@ -33,6 +33,7 @@ import           Type.Reflection
 import qualified Data.Type.Sum             as TCS
 
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
+    SDEdit :: (Index as :&: g) a -> SumDiff f g as
     SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
     SDDiff :: Index as a -> (Index as :&: f) b -> SumDiff f g as
 
@@ -44,7 +45,7 @@ sumDiff
     -> SumDiff f g as
 sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     case testEquality i j of
-      Just Refl -> SDSame (i :&: i :&: f (i :&: x :&: y))
+      Just Refl -> SDEdit (i :&: f (i :&: x :&: y))
       Nothing   -> SDDiff i (j :&: y)
 
 -- | Version of sumDiff that uses 'SDSame' if two different indices, but
@@ -59,7 +60,9 @@ sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
         every @_ @Typeable i //
         every @_ @Typeable j //
     case testEquality (tr i) (tr j) of
-      Just Refl -> SDSame (i :&: j :&: f ((i :&: x) :&: (j :&: y)))
+      Just Refl
+        | i == j    -> SDEdit (i :&: f ((i :&: x) :&: (j :&: y)))
+        | otherwise -> SDSame (i :&: j :&: f ((i :&: x) :&: (j :&: y)))
       Nothing   -> SDDiff i (j :&: y)
   where
     tr :: Typeable a => p a -> TypeRep a
@@ -106,6 +109,10 @@ patchSOP
     -> Sum Tuple ass
     -> Maybe (Sum Tuple ass)
 patchSOP f = \case
+    SDEdit (i :&: es) -> \xss -> do
+      xs <- TCS.index i xss
+      ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
+      return (injectSum i ys)
     SDSame (i :&: j :&: es) -> \xss -> do
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
