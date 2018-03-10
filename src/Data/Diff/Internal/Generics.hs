@@ -14,6 +14,7 @@
 
 module Data.Diff.Internal.Generics (
     SumDiff(..)
+  , CtrDiff(..)
   , diffSOP
   , diffSOP'
   , patchSOP
@@ -33,9 +34,12 @@ import           Type.Reflection
 import qualified Data.Type.Sum             as TCS
 
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
-    SDEdit :: (Index as :&: g) a -> SumDiff f g as
-    SDSame :: (Index as :&: Index as :&: g) a -> SumDiff f g as
-    SDDiff :: Index as a -> (Index as :&: f) b -> SumDiff f g as
+    SD :: (Index as :&: CtrDiff f g as) a -> SumDiff f g as
+
+data CtrDiff :: (k -> Type) -> (k -> Type) -> [k] -> k -> Type where
+    CDEdit :: g a -> CtrDiff f g as a
+    CDName :: (Index as :&: g) a -> CtrDiff f g as a
+    CDDiff :: (Index as :&: f) b -> CtrDiff f g as a
 
 sumDiff
     :: forall f g as. ()
@@ -45,8 +49,8 @@ sumDiff
     -> SumDiff f g as
 sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     case testEquality i j of
-      Just Refl -> SDEdit (i :&: f (i :&: x :&: y))
-      Nothing   -> SDDiff i (j :&: y)
+      Just Refl -> SD ( i :&: CDEdit (f (i :&: x :&: y)) )
+      Nothing   -> SD ( i :&: CDDiff (j :&: y)  )
 
 -- | Version of sumDiff that uses 'SDSame' if two different indices, but
 -- same type
@@ -61,9 +65,13 @@ sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
         every @_ @Typeable j //
     case testEquality (tr i) (tr j) of
       Just Refl
-        | i == j    -> SDEdit (i :&: f ((i :&: x) :&: (j :&: y)))
-        | otherwise -> SDSame (i :&: j :&: f ((i :&: x) :&: (j :&: y)))
-      Nothing   -> SDDiff i (j :&: y)
+        | i == j    -> SD ( i
+                        :&: CDEdit (f ((i :&: x) :&: (j :&: y)))
+                          )
+        | otherwise -> SD ( i
+                        :&: CDName (j :&: f ((i :&: x) :&: (j :&: y)))
+                          )
+      Nothing   -> SD ( i :&: CDDiff (j :&: y) )
   where
     tr :: Typeable a => p a -> TypeRep a
     tr _ = typeRep
@@ -109,15 +117,15 @@ patchSOP
     -> Sum Tuple ass
     -> Maybe (Sum Tuple ass)
 patchSOP f = \case
-    SDEdit (i :&: es) -> \xss -> do
+    SD (i :&: CDEdit es) -> \xss -> do
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
       return (injectSum i ys)
-    SDSame (i :&: j :&: es) -> \xss -> do
+    SD (i :&: CDName (j :&: es)) -> \xss -> do
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
       return (injectSum j ys)
-    SDDiff i (j :&: ys) -> \xss -> do
+    SD (i :&: CDDiff (j :&: ys)) -> \xss -> do
       _  <- TCS.index i xss
       return (injectSum j ys)
   where
