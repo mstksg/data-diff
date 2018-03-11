@@ -17,14 +17,15 @@
 module Data.Diff.Internal (
     Diff(..)
   , Patch(..), DiffLevel(.., NoDiff, TotalDiff), MergeResult(..)
-  , merge, catLevels, normDL, dlPercent, diffPercentage
+  , merge, catLevels, normDL, dlPercent, percentDiff, prodPatchLevel
   , compareDiff
+  , DefaultDiff(..)
   , Edit'(..), diff', patch'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
   , gpatchLevel
   , gmergePatch
-  , GPatch(..)
+  , GPatch(..), GPatch'(..)
   , gdiff
   , gdiff'
   , gpatch
@@ -33,10 +34,6 @@ module Data.Diff.Internal (
   , gpatchProd
   ) where
 
--- import           Control.Applicative
--- import           Data.Foldable
--- import qualified Data.List.NonEmpty       as NE
--- import qualified GHC.Generics             as G
 import           Control.Monad
 import           Data.Diff.Internal.Generics
 import           Data.Function
@@ -55,7 +52,10 @@ import           Type.Family.Constraint
 import           Type.Reflection
 import qualified Generics.SOP                as SOP
 
-data DiffLevel = DL Double Double
+-- | Data type representing a "percentage difference"
+data DiffLevel = DL { dlAmt :: Double
+                    , dlTot :: Double
+                    }
 
 instance Semigroup DiffLevel where
     DL x s <> DL y t = DL (x + y) (s + t)
@@ -64,28 +64,42 @@ instance Monoid DiffLevel where
     mappend = (<>)
     mempty  = DL 0 0
 
+-- | Is the 'DiffLevel' a no difference?
+noDiff :: DiffLevel -> Maybe Double
+noDiff (DL y t)
+    | abs y <= 0.0001 = Just t
+    | otherwise       = Nothing
+
 pattern NoDiff :: Double -> DiffLevel
-pattern NoDiff t <- DL ((== 0)->True) t
+pattern NoDiff t <- (noDiff->Just t)
   where
     NoDiff t = DL 0 t
 
-isTot :: DiffLevel -> Maybe Double
-isTot (DL y t)
+-- | Is the 'DiffLevel' a total difference?
+totalDiff :: DiffLevel -> Maybe Double
+totalDiff (DL y t)
   | abs (y - t) < 0.0001 = Just t
   | otherwise            = Nothing
 
 pattern TotalDiff :: Double -> DiffLevel
-pattern TotalDiff x <- (isTot->Just x)
+pattern TotalDiff t <- (totalDiff->Just t)
   where
-    TotalDiff x = DL x x
+    TotalDiff t = DL t t
 
--- what about 0?
+-- | Rescale 'DiffLevel' to be out of a given total.
+--
+-- TODO: what about 0?
 normDL :: Double -> DiffLevel -> DiffLevel
 normDL s (DL x t) = DL (x / t * s) s
 
+-- | Calculate percent difference.
+--
+-- TODO: What about 0?
 dlPercent :: DiffLevel -> Double
 dlPercent (DL x t) = x / t
 
+-- | Merge all 'DiffLevel' in a 'Foldable' container, treating them all as
+-- equally weighted.
 catLevels
     :: Foldable f
     => f DiffLevel
@@ -95,9 +109,10 @@ catLevels = normMaybe . foldMap (normDL 1)
     normMaybe (DL _ 0) = NoDiff 1
     normMaybe dl       = normDL 1 dl
 
-data MergeResult a = Incompatible
-                   | Conflict   a
-                   | NoConflict a
+-- | Result of a merge
+data MergeResult a = Incompatible       -- ^ Incompatible sources
+                   | Conflict   a       -- ^ Conflicts, throwing away info
+                   | NoConflict a       -- ^ All conflicts resolved
   deriving (Functor, Show, Eq, Ord)
 
 instance Applicative MergeResult where
@@ -178,8 +193,14 @@ class DefaultDiff p a where
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
       => DefaultDiff (GPatch a) a where
-    defaultDiff  = gdiff'
+    defaultDiff  = gdiff
     defaultPatch = gpatch
+
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+      => DefaultDiff (GPatch' a) a where
+    defaultDiff x = GP' . gdiff' x
+    defaultPatch = gpatch . getGP'
+
 
 -- | Left-biased merge of two diffable values.
 merge :: Diff a => a -> a -> a -> MergeResult a
@@ -190,24 +211,30 @@ merge o x y = do
     px = diff o x
     py = diff o y
 
+-- | Newtype used to get around partial application of type families
 newtype Edit' a = Edit' { getEdit' :: Edit a }
     deriving (Generic)
 
 instance SOP.Generic (Edit' a)
 instance Patch (Edit a) => Patch (Edit' a)
 
+-- | 'diff'' lifted to 'Edit''
 diff' :: Diff a => a -> a -> Edit' a
 diff' x y = Edit' (diff x y)
 
+-- | 'patch'' lifted to 'Edit''
 patch' :: Diff a => Edit' a -> a -> Maybe a
 patch' (Edit' x) = patch x
 
-diffPercentage :: Diff a => a -> a -> Double
-diffPercentage x y = dlPercent $ patchLevel (diff x y)
+-- | How different two items are, as a percentage
+percentDiff :: Diff a => a -> a -> Double
+percentDiff x = dlPercent . compareDiff x
 
+-- | Get 'DiffLevel' between two items
 compareDiff :: Diff a => a -> a -> DiffLevel
 compareDiff x y = patchLevel (diff x y)
 
+-- | 'patchLevel' written to work for any types deriving 'SOP.Generic'.
 gpatchLevel
     :: forall a ass. (SOP.Generic a, SOP.Code a ~ ass, Every (Every Patch) ass)
     => a -> DiffLevel
@@ -219,6 +246,8 @@ gpatchLevel = ifromSum go . map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
         pl :: Every Patch as => Index as b -> I b -> [DiffLevel]
         pl j = (:[]) . patchLevel . getI \\ every @_ @Patch j
 
+-- | 'mergePatch' written to work for any __product types__ deriving
+-- 'SOP.Generic'.
 gmergePatch
     :: forall a as. (SOP.IsProductType a as, Every Patch as)
     => a
@@ -236,13 +265,26 @@ gmergePatch x0 = fmap (SOP.to . sopSop . InL)
          . SOP.from
 
 
--- TODO: case w/o typable
+-- | Generic patch type for any types deriving 'SOP.Generic'.
 newtype GPatch a = GP { getGP :: SumDiff Tuple (Prod Edit') (SOP.Code a) }
+  deriving (Generic)
+
+instance SOP.Generic (GPatch a)
+
+-- | Newtype wrapper over 'GPatch' to give alternative 'DefaultDiff'
+-- instance, which treats all constructor changes as total differences,
+-- even if they have the same type of values.
+newtype GPatch' a = GP' { getGP' :: GPatch a }
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every (Comp Patch Edit')) (SOP.Code a)) => Patch (GPatch a) where
     patchLevel = gpPatchLevel
     mergePatch = gpMergePatch
 
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every (Comp Patch Edit')) (SOP.Code a)) => Patch (GPatch' a) where
+    patchLevel = gpPatchLevel . getGP'
+    mergePatch x y = GP' <$> gpMergePatch (getGP' x) (getGP' y)
+
+-- | Patch level for 'GPatch'
 gpPatchLevel
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
     => GPatch a
@@ -304,6 +346,7 @@ gpMergePatch (GP (SD (i1 :&: cd1)))
             Nothing -> Conflict cd1
     Nothing   -> Incompatible
 
+-- | Merge product of patches
 prodMergePatch
     :: forall as. Every Diff as
     => Prod Edit' as
@@ -317,21 +360,11 @@ prodMergePatch = izipProdWithA go
         -> MergeResult (Edit' a)
     go i x y = mergePatch x y \\ every @_ @Diff i
 
-gdiff
-    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
-    => a
-    -> a
-    -> GPatch a
-gdiff x y = GP $ go x y
-  where
-    go = diffSOP d `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
-      where
-        d :: Index (SOP.Code a) as -> Index as b -> b -> b -> Edit' b
-        d i j = diff' \\ every @_ @Diff         j
-                      \\ every @_ @(Every Diff) i
-
+-- | 'diff' intented to work for all instances of 'SOP.Generic'.  Differs
+-- from 'gdiff' in that it treats constructor changes as total differences,
+-- even if they both contain the same type of values.
 gdiff'
-    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
     => a
     -> a
     -> GPatch a
@@ -343,7 +376,24 @@ gdiff' x y = GP $ go x y
         d i j = diff' \\ every @_ @Diff         j
                       \\ every @_ @(Every Diff) i
 
+-- | 'diff' intented to work for all instances of 'SOP.Generic'.  Will
+-- treat constructor changes as partial differences if they both contain
+-- the same type of values.
+gdiff
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
+    => a
+    -> a
+    -> GPatch a
+gdiff x y = GP $ go x y
+  where
+    go = diffSOP d `on` map1 (map1 (I . SOP.unI)) . sopSOP . SOP.from
+      where
+        d :: Index (SOP.Code a) as -> Index as b -> b -> b -> Edit' b
+        d i j = diff' \\ every @_ @Diff         j
+                      \\ every @_ @(Every Diff) i
 
+
+-- | 'patch' intented to work for all instances of 'SOP.Generic'.
 gpatch
     :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
     => GPatch a
@@ -359,6 +409,8 @@ gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
     p i j = patch' \\ every @_ @Diff         j
                    \\ every @_ @(Every Diff) i
 
+-- | Generic patch type for all product types that are instances of
+-- 'SOP.Generic'.
 data GPatchProd a = forall as. (SOP.Code a ~ '[as])
                  => GPP { getGPP :: Prod Edit' as }
 
@@ -370,6 +422,8 @@ instance (SOP.IsProductType a as, Every Diff as) => DefaultDiff (GPatchProd a) a
     defaultDiff  = gdiffProd
     defaultPatch = gpatchProd
 
+-- | 'diff' intended to work for all product types that are instances of
+-- 'SOP.Generic'.
 gdiffProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)
     => a
@@ -383,6 +437,8 @@ gdiffProd x y = GPP $ go x y
     d :: Index as b -> b -> b -> Edit' b
     d i = diff' \\ every @_ @Diff i
 
+-- | 'patch' intended to work for all product types that are instances of
+-- 'SOP.Generic'.
 gpatchProd
     :: forall a as. (SOP.IsProductType a as, Every Diff as)
     => GPatchProd a
@@ -400,19 +456,24 @@ gpatchProd (GPP es) =
     go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
     go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
 
+-- | Patch type that treats all changes as total differences
 data Swap a = NoChange
             | Replace a
   deriving (Generic, Eq, Ord, Show, Read)
 
+-- | 'diff' for all instances of 'Eq'
 eqDiff :: Eq a => a -> a -> Swap a
 eqDiff x y
     | x == y    = NoChange
     | otherwise = Replace y
 
+-- | 'patch' for 'Swap'
 eqPatch :: Swap a -> a -> Maybe a
 eqPatch NoChange    x = Just x
 eqPatch (Replace x) _ = Just x
 
+-- | Newtype wrapper that gives an automatic 'Diff' instance that treats
+-- all changes as total differences.
 newtype EqDiff a = EqDiff { getEqDiff :: a }
   deriving (Generic, Eq, Ord, Show, Read)
 

@@ -41,26 +41,28 @@ data CtrDiff :: (k -> Type) -> (k -> Type) -> [k] -> k -> Type where
     CDName :: (Index as :&: g) a -> CtrDiff f g as a
     CDDiff :: (Index as :&: f) b -> CtrDiff f g as a
 
-sumDiff
+-- | Version of 'sumDiff'' that treats constructor changes as total edits
+-- even if the contents have the same type
+sumDiff'
     :: forall f g as. ()
     => (forall a. (Index as :&: f :&: f) a -> g a)
     -> Sum f as
     -> Sum f as
     -> SumDiff f g as
-sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
+sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     case testEquality i j of
       Just Refl -> SD ( i :&: CDEdit (f (i :&: x :&: y)) )
       Nothing   -> SD ( i :&: CDDiff (j :&: y)  )
 
--- | Version of sumDiff that uses 'SDSame' if two different indices, but
--- same type
-sumDiff'
+-- | Version of 'sumDiff' that treats constructor changes as partial edits
+-- if the contents have the same type
+sumDiff
     :: forall f g as. Every Typeable as
     => (forall a. Typeable a => ((Index as :&: f) :&: (Index as :&: f)) a -> g a)
     -> Sum f as
     -> Sum f as
     -> SumDiff f g as
-sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
+sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
         every @_ @Typeable i //
         every @_ @Typeable j //
     case testEquality (tr i) (tr j) of
@@ -76,13 +78,13 @@ sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     tr :: Typeable a => p a -> TypeRep a
     tr _ = typeRep
 
-diffSOP
+diffSOP'
     :: forall f ass. ()
     => (forall as a. Index ass as -> Index as a -> a -> a -> f a)
     -> Sum Tuple ass
     -> Sum Tuple ass
     -> SumDiff Tuple (Prod f) ass
-diffSOP f = sumDiff combine
+diffSOP' f = sumDiff' combine
   where
     combine
         :: forall as. ()
@@ -93,13 +95,13 @@ diffSOP f = sumDiff combine
         go :: Index as a -> I a -> I a -> f a
         go j (I x) (I y) = f i j x y
 
-diffSOP'
+diffSOP
     :: forall f ass. (Every Typeable ass)
     => (forall as a. Index ass as -> Index as a -> a -> a -> f a)
     -> Sum Tuple ass
     -> Sum Tuple ass
     -> SumDiff Tuple (Prod f) ass
-diffSOP' f = sumDiff' combine
+diffSOP f = sumDiff combine
   where
     combine
         :: forall as. ()
