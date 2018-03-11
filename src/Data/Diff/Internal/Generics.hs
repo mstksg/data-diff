@@ -21,9 +21,9 @@ module Data.Diff.Internal.Generics (
   , undiffSOP
   ) where
 
+-- import           Data.Bifunctor
+-- import           Data.Function
 import           Control.Monad
-import           Data.Bifunctor
-import           Data.Function
 import           Data.Kind
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
@@ -144,10 +144,17 @@ undiffSOP
     :: (forall as a. Index ass as -> Index as a -> f a -> (a, a))
     -> SumDiff Tuple (Prod f) ass
     -> (Sum Tuple :&: Sum Tuple) ass
-undiffSOP f = \case
-    SD (i :&: CDEdit es) -> (injectSum i .&. injectSum i)
-                          . unzipProd
-                          . imap1 (\j e -> let (x,y) = f i j e
-                                           in  I x :&: I y
-                                  )
-                          $ es
+undiffSOP f (SD (i :&: cd)) = case cd of
+    CDEdit es -> (injectSum i .&. injectSum i)
+               . unzipProd
+               . imap1 (\j e -> let (x, y) = f i j e
+                                in  I x :&: I y
+                       )
+               $ es
+    CDName (j :&: es) -> (injectSum i .&. injectSum j)
+                       . unzipProd
+                       . imap1 (\k e -> let (x, y) = f i k e
+                                        in  I x :&: I y
+                               )
+                       $ es
+    CDDiff xs (j :&: ys) -> injectSum i xs :&: injectSum j ys
