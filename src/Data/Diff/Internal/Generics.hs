@@ -18,9 +18,12 @@ module Data.Diff.Internal.Generics (
   , diffSOP
   , diffSOP'
   , patchSOP
+  , undiffSOP
   ) where
 
 import           Control.Monad
+import           Data.Bifunctor
+import           Data.Function
 import           Data.Kind
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
@@ -130,9 +133,21 @@ patchSOP f g = \case
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
       return (injectSum j ys)
     SD (i :&: CDDiff xs (j :&: ys)) -> \xss -> do
-      xs' <- TCS.index i xss
+      xs' <- TCS.index i xss            -- TODO: should this be verified?
       izipProdWithA_ (\k (I x') (I x) -> guard $ g i k x' x) xs' xs
       return (injectSum j ys)
   where
     go  :: Index ass as -> Index as a -> (f :&: I) a -> Maybe a
     go i k (e :&: I x) = f i k e x
+
+undiffSOP
+    :: (forall as a. Index ass as -> Index as a -> f a -> (a, a))
+    -> SumDiff Tuple (Prod f) ass
+    -> (Sum Tuple :&: Sum Tuple) ass
+undiffSOP f = \case
+    SD (i :&: CDEdit es) -> (injectSum i .&. injectSum i)
+                          . unzipProd
+                          . imap1 (\j e -> let (x,y) = f i j e
+                                           in  I x :&: I y
+                                  )
+                          $ es

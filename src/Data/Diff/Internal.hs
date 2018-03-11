@@ -20,7 +20,7 @@ module Data.Diff.Internal (
   , merge, catLevels, normDL, dlPercent, percentDiff, prodPatchLevel
   , compareDiff
   , DefaultDiff(..)
-  , Edit'(..), diff', patch'
+  , Edit'(..), diff', patch', undiff'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
   , gpatchLevel
@@ -29,12 +29,15 @@ module Data.Diff.Internal (
   , gdiff
   , gdiff'
   , gpatch
+  , gundiff
   , GPatchProd(..)
   , gdiffProd
   , gpatchProd
+  , gundiffProd
   ) where
 
 import           Control.Monad
+import           Data.Bifunctor
 import           Data.Diff.Internal.Generics
 import           Data.Function
 import           Data.Semigroup              (Semigroup(..))
@@ -177,19 +180,29 @@ class (Eq a, Patch (Edit a)) => Diff a where
         -> Maybe a
     patch = defaultPatch
 
+    default undiff
+        :: DefaultDiff (Edit a) a
+        => Edit a
+        -> (a, a)
+    undiff = defaultUndiff
+
+
 class DefaultDiff p a where
-    defaultDiff :: a -> a -> p
-    defaultPatch :: p -> a -> Maybe a
+    defaultDiff   :: a -> a -> p
+    defaultPatch  :: p -> a -> Maybe a
+    defaultUndiff :: p -> (a, a)
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every Typeable (SOP.Code a))
       => DefaultDiff (GPatch a) a where
-    defaultDiff  = gdiff
-    defaultPatch = gpatch
+    defaultDiff   = gdiff
+    defaultPatch  = gpatch
+    defaultUndiff = gundiff
 
 instance (SOP.Generic a, Every (Every Diff) (SOP.Code a))
       => DefaultDiff (GPatch' a) a where
     defaultDiff x = GP' . gdiff' x
-    defaultPatch = gpatch . getGP'
+    defaultPatch  = gpatch . getGP'
+    defaultUndiff = gundiff . getGP'
 
 
 -- | Left-biased merge of two diffable values.
@@ -214,7 +227,11 @@ diff' x y = Edit' (diff x y)
 
 -- | 'patch'' lifted to 'Edit''
 patch' :: Diff a => Edit' a -> a -> Maybe a
-patch' (Edit' x) = patch x
+patch' (Edit' e) = patch e
+
+-- | 'undiff'' lifted to 'Edit''
+undiff' :: Diff a => Edit' a -> (a, a)
+undiff' (Edit' e) = undiff e
 
 -- | How different two items are, as a percentage
 percentDiff :: Diff a => a -> a -> Double
@@ -405,6 +422,22 @@ gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
     q i j = (==)   \\ every @_ @Diff j
                    \\ every @_ @(Every Diff) i
 
+-- | 'undiff' intended to work for all instances of 'SOP.Generic'.
+gundiff
+    :: forall a. (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+    => GPatch a
+    -> (a, a)
+gundiff = (\(xs :&: ys) -> (go xs, go ys))
+        . undiffSOP p
+        . getGP
+  where
+    p :: Index (SOP.Code a) as -> Index as b -> Edit' b -> (b, b)
+    p i j = undiff' \\ every @_ @Diff         j
+                    \\ every @_ @(Every Diff) i
+    go :: Sum Tuple (SOP.Code a) -> a
+    go = SOP.to . sopSop . map1 (map1 (SOP.I . getI))
+
+
 -- | Generic patch type for all product types that are instances of
 -- 'SOP.Generic'.
 data GPatchProd a = forall as. (SOP.Code a ~ '[as])
@@ -415,8 +448,9 @@ instance (SOP.IsProductType a as, Every Diff as, Every (Comp Patch Edit') as) =>
     mergePatch (GPP es1) (GPP es2) = GPP <$> prodMergePatch es1 es2
 
 instance (SOP.IsProductType a as, Every Diff as) => DefaultDiff (GPatchProd a) a where
-    defaultDiff  = gdiffProd
-    defaultPatch = gpatchProd
+    defaultDiff   = gdiffProd
+    defaultPatch  = gpatchProd
+    defaultUndiff = gundiffProd
 
 -- | 'diff' intended to work for all product types that are instances of
 -- 'SOP.Generic'.
@@ -452,6 +486,24 @@ gpatchProd (GPP es) =
     go :: Index as b -> (Edit' :&: SOP.I) b -> Maybe b
     go i (e :&: SOP.I x) = patch' e x \\ every @_ @Diff i
 
+-- | 'undiff' intended to work for all product types that are instances of
+-- 'SOP.Generic'.
+gundiffProd
+    :: forall a as. (SOP.IsProductType a as, Every Diff as)
+    => GPatchProd a
+    -> (a, a)
+gundiffProd (GPP es) = (\(xs :&: ys) -> (unsop xs, unsop ys))
+                     . unzipProd
+                     . imap1 go
+                     $ es
+  where
+    go :: Index as b -> Edit' b -> (I :&: I) b
+    go i e = I x :&: I y
+      where
+        (x, y) = undiff' e \\ every @_ @Diff i
+    unsop :: Tuple as -> a
+    unsop = SOP.to . SOP.SOP . SOP.Z . prodSOP . map1 (SOP.I . getI)
+
 -- | Patch type that treats all changes as total differences
 data Swap a = NoChange
             | Replace a
@@ -468,6 +520,10 @@ eqPatch :: Swap a -> a -> Maybe a
 eqPatch NoChange    x = Just x
 eqPatch (Replace x) _ = Just x
 
+eqUndiff :: Swap a -> (a, a)
+eqUndiff NoChange    = (undefined, undefined)
+eqUndiff (Replace x) = (undefined, x)
+
 -- | Newtype wrapper that gives an automatic 'Diff' instance that treats
 -- all changes as total differences.
 newtype EqDiff a = EqDiff { getEqDiff :: a }
@@ -482,13 +538,15 @@ instance Patch (Swap a) where
     mergePatch l@(Replace _) _             = Conflict l
 
 instance Eq a => DefaultDiff (Swap a) a where
-    defaultDiff  = eqDiff
-    defaultPatch = eqPatch
+    defaultDiff   = eqDiff
+    defaultPatch  = eqPatch
+    defaultUndiff = eqUndiff
 
 instance Eq a => Diff (EqDiff a) where
     type Edit (EqDiff a) = Swap a
-    diff = eqDiff `on` getEqDiff
+    diff    = eqDiff `on` getEqDiff
     patch p = fmap EqDiff . eqPatch p . getEqDiff
+    undiff  = bimap EqDiff EqDiff . eqUndiff
 
 instance (Diff a, Diff b) => Diff (a, b) where
     type Edit (a,b) = GPatchProd (a,b)

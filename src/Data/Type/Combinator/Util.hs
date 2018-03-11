@@ -11,6 +11,7 @@ module Data.Type.Combinator.Util (
   , izipProdWith
   , izipProdWithA
   , izipProdWithA_
+  , unzipProd
   , sopProd
   , sopSOP
   , sopSop
@@ -27,6 +28,12 @@ import           Data.Type.Sum
 import           Type.Class.Higher
 import qualified Generics.SOP          as SOP
 
+unzipProd
+    :: Prod (f :&: g) as
+    -> (Prod f :&: Prod g) as
+unzipProd = \case
+    Ø                 -> (Ø :&: Ø)
+    (x :&: y) :< xsys -> ((x :<) .&. (y :<)) $ unzipProd xsys
 
 zipProd
     :: Prod f as
