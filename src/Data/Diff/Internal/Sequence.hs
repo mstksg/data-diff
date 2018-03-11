@@ -1,3 +1,5 @@
+{-# LANGUAGE AllowAmbiguousTypes        #-}
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -6,12 +8,14 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 module Data.Diff.Internal.Sequence (
   -- * Diff
-    SeqPatch(..)
+    SeqPatchAt(..)
+  , SeqPatch
   , listDiff
   , listPatch
   , listUndiff
@@ -35,8 +39,10 @@ import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Function
 import           Data.Hashable
+import           Data.Proxy
 import           Data.Semigroup hiding (diff)
 import           GHC.Generics          (Generic)
+import           GHC.TypeNats
 import qualified Data.Algorithm.Diff   as D
 import qualified Data.Algorithm.Diff3  as D
 import qualified Data.HashSet          as HS
@@ -51,11 +57,11 @@ import qualified Data.Vector.Storable  as VS
 import qualified Data.Vector.Unboxed   as VU
 import qualified GHC.Exts              as E
 
-newtype SeqPatch a = SP { getSP :: [D.Diff a] }
+newtype SeqPatchAt (p :: Nat) a = SPA { getSPA :: [D.Diff a] }
   deriving (Show, Eq, Generic)
 
-instance Diff a => Patch (SeqPatch a) where
-    patchLevel = catLevels . map dLevel . getSP
+instance (KnownNat p, Diff a) => Patch (SeqPatchAt p a) where
+    patchLevel = catLevels . map dLevel . getSPA
       where
         dLevel :: D.Diff a -> DiffLevel
         dLevel (D.First _ ) = TotalDiff 1
@@ -64,15 +70,15 @@ instance Diff a => Patch (SeqPatch a) where
     mergePatch es1 es2
         | xs1 == xs2 = listDiff xs1
                      . concat
-                   <$> traverse dehunk (D.diff3By (\x y -> percentDiff x y < 0.5)
-                                                  ys xs1 zs
-                                       )
+                   <$> traverse dehunk (D.diff3By (threshFunc @p) ys xs1 zs)
         | otherwise  = Incompatible
       where
         (xs1, ys) = listUndiff es1
         (xs2, zs) = listUndiff es2
 
-newtype EqSeqPatch a = ESP { getESP :: SeqPatch (EqDiff a) }
+type SeqPatch = SeqPatchAt 50
+
+newtype EqSeqPatch a = ESP { getESP :: SeqPatchAt 0 (EqDiff a) }
   deriving (Show, Eq, Patch, Generic)
 
 dehunk
@@ -95,19 +101,24 @@ dehunk = \case
         p1 = diff o x
         p2 = diff o y
 
-listDiffBy
+threshFunc :: forall p a. (KnownNat p, Diff a) => a -> a -> Bool
+threshFunc x y = percentDiff x y < p
+  where
+    p = fromIntegral (natVal (Proxy @p)) / 100
+
+unsafeListDiffBy
     :: (a -> a -> Bool)
     -> [a]
     -> [a]
-    -> SeqPatch a
-listDiffBy f xs = SP . D.getDiffBy f xs
+    -> SeqPatchAt p a
+unsafeListDiffBy f xs = SPA . D.getDiffBy f xs
 
 listDiff
-    :: Diff a
+    :: forall p a. (KnownNat p, Diff a)
     => [a]
     -> [a]
-    -> SeqPatch a
-listDiff = listDiffBy $ \x y -> percentDiff x y < 0.5
+    -> SeqPatchAt p a
+listDiff = unsafeListDiffBy $ threshFunc @p
 
 eqListDiff
     :: Eq a
@@ -117,11 +128,11 @@ eqListDiff
 eqListDiff x = ESP . listDiff (EqDiff <$> x) . fmap EqDiff
 
 seqDiff
-    :: Diff a
+    :: (KnownNat p, Diff a)
     => (t -> [a])
     -> t
     -> t
-    -> SeqPatch a
+    -> SeqPatchAt p a
 seqDiff f = listDiff `on` f
 
 eqSeqDiff
@@ -136,14 +147,14 @@ seqPatch
     :: Eq a
     => (t -> [a])
     -> ([a] -> t)
-    -> SeqPatch a
+    -> SeqPatchAt p a
     -> t
     -> Maybe t
 seqPatch f g d = fmap g . listPatch d . f
 
 seqUndiff
     :: ([a] -> t)
-    -> SeqPatch a
+    -> SeqPatchAt p a
     -> (t, t)
 seqUndiff f = bimap f f . listUndiff
 
@@ -165,10 +176,10 @@ eqSeqUndiff f = bimap f f . eqListUndiff
 
 listPatch
     :: Eq a
-    => SeqPatch a
+    => SeqPatchAt p a
     -> [a]
     -> Maybe [a]
-listPatch (SP es0) = go es0
+listPatch = go . getSPA
   where
     go (D.First x  : es) xs = contract x es xs
     go (D.Second x : es) xs = (x :) <$> go es xs
@@ -193,9 +204,9 @@ eqListUndiff
 eqListUndiff = bimap (map getEqDiff) (map getEqDiff) . listUndiff . getESP
 
 listUndiff
-    :: SeqPatch a
+    :: SeqPatchAt p a
     -> ([a], [a])
-listUndiff (SP es0) = recover es0
+listUndiff = recover . getSPA
   where
     recover :: forall b. [D.Diff b] -> ([b], [b])
     recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
@@ -207,7 +218,7 @@ listUndiff (SP es0) = recover es0
           D.Second   y -> (mempty    , S.diff [y])
 
 
-instance (E.IsList l, e ~ E.Item l, Diff e) => DefaultDiff (SeqPatch e) l  where
+instance (E.IsList l, e ~ E.Item l, Diff e, KnownNat p) => DefaultDiff (SeqPatchAt p e) l  where
     defaultDiff   = seqDiff E.toList
     defaultPatch  = seqPatch E.toList E.fromList
     defaultUndiff = seqUndiff E.fromList

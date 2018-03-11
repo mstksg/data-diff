@@ -547,7 +547,7 @@ instance Eq a => Patch (Swap a) where
 
     mergePatch (NoChange x)    (NoChange y)
       | x == y    = NoConflict (NoChange x)
-      | otherwise = Incompatible                -- TODO: be more lenient
+      | otherwise = Incompatible                -- TODO: be more lenient?
     mergePatch (NoChange _)    r@(Replace _ _) = Conflict r
     mergePatch l@(Replace _ _) _               = Conflict l
 

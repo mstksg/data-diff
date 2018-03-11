@@ -15,7 +15,7 @@ module Data.Diff (
   -- *** Sequences
   , listDiff
   , listPatch
-  , SeqPatch(..)
+  , SeqPatchAt(..), SeqPatch
   , seqDiff
   , seqPatch
   -- *** Generic ADTs
