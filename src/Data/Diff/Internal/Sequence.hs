@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 module Data.Diff.Internal.Sequence (
@@ -30,7 +31,8 @@ module Data.Diff.Internal.Sequence (
   , eqSeqDiff
   , eqSeqPatch
   , eqSeqUndiff
-  -- * Newtype
+  -- * Line-by-line
+  , LinesPatch(..)
   , Lines(..)
   ) where
 
@@ -40,22 +42,23 @@ import           Data.Diff.Internal
 import           Data.Function
 import           Data.Hashable
 import           Data.Proxy
-import           Data.Semigroup hiding (diff)
-import           GHC.Generics          (Generic)
+import           Data.Semigroup hiding   (diff)
+import           GHC.Generics            (Generic)
 import           GHC.TypeNats
-import qualified Data.Algorithm.Diff   as D
-import qualified Data.Algorithm.Diff3  as D
-import qualified Data.HashSet          as HS
-import qualified Data.IntSet           as IS
-import qualified Data.Semigroup        as S
-import qualified Data.Set              as S
-import qualified Data.Text             as T
-import qualified Data.Text.Lazy        as TL
-import qualified Data.Vector           as V
-import qualified Data.Vector.Primitive as VP
-import qualified Data.Vector.Storable  as VS
-import qualified Data.Vector.Unboxed   as VU
-import qualified GHC.Exts              as E
+import qualified Data.Algorithm.Diff     as D
+import qualified Data.Algorithm.Diff3    as D
+import qualified Data.HashSet            as HS
+import qualified Data.IntSet             as IS
+import qualified Data.Semigroup          as S
+import qualified Data.Set                as S
+import qualified Data.String.Conversions as SC
+import qualified Data.Text               as T
+import qualified Data.Text.Lazy          as TL
+import qualified Data.Vector             as V
+import qualified Data.Vector.Primitive   as VP
+import qualified Data.Vector.Storable    as VS
+import qualified Data.Vector.Unboxed     as VU
+import qualified GHC.Exts                as E
 
 newtype SeqPatchAt (p :: Nat) a = SPA { getSPA :: [D.Diff a] }
   deriving (Show, Eq, Generic)
@@ -79,6 +82,9 @@ instance (KnownNat p, Diff a) => Patch (SeqPatchAt p a) where
 type SeqPatch = SeqPatchAt 50
 
 newtype EqSeqPatch a = ESP { getESP :: SeqPatchAt 0 (EqDiff a) }
+  deriving (Show, Eq, Patch, Generic)
+
+newtype LinesPatch t = LP { getLP :: EqSeqPatch T.Text }
   deriving (Show, Eq, Patch, Generic)
 
 dehunk
@@ -228,6 +234,16 @@ instance (E.IsList l, e ~ E.Item l, Eq e) => DefaultDiff (EqSeqPatch e) l  where
     defaultPatch  = eqSeqPatch E.toList E.fromList
     defaultUndiff = eqSeqUndiff E.fromList
 
+instance (SC.ConvertibleStrings t T.Text, SC.ConvertibleStrings T.Text t)
+            => DefaultDiff (LinesPatch t) t where
+    defaultDiff x = LP . eqSeqDiff (T.splitOn "\n" . SC.convertString) x
+    defaultPatch p = fmap SC.convertString
+                   . eqSeqPatch (T.splitOn "\n") (T.intercalate "\n") (getLP p)
+                   . SC.convertString
+    defaultUndiff = bimap SC.convertString SC.convertString
+                  . eqSeqUndiff (T.intercalate "\n")
+                  . getLP
+
 -- | Items that aren't completely different are considered modifications,
 -- not insertions/deletions.  If this is not desired behavior, map with
 -- 'EqDiff'.
@@ -250,31 +266,28 @@ instance (Diff a, VU.Unbox a) => Diff (VU.Vector a) where
 instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     type Edit (VP.Vector a) = SeqPatch a
 
--- | String that is line-by-line diff'd
-newtype Lines = Lines { getLines :: String }
-    deriving (Show, Eq, Ord, Generic, Read)
-
--- | Line-by-line diff of 'String's
-instance Diff Lines where
-    type Edit Lines = EqSeqPatch String
-    diff  = eqSeqDiff  (map T.unpack . T.splitOn "\n" . T.pack . getLines)
-    patch = eqSeqPatch (map T.unpack . T.splitOn "\n" . T.pack . getLines)
-                       (Lines . T.unpack . T.intercalate "\n" . map T.pack)
-    undiff = eqSeqUndiff (Lines . T.unpack . T.intercalate "\n" . map T.pack)
-
 -- | Line-by-line diff
 instance Diff T.Text where
-    type Edit T.Text = EqSeqPatch T.Text
-    diff  = eqSeqDiff  (T.splitOn "\n")
-    patch = eqSeqPatch (T.splitOn "\n") (T.intercalate "\n")
-    undiff = eqSeqUndiff (T.intercalate "\n")
+    type Edit T.Text = LinesPatch T.Text
 
 -- | Line-by-line diff
 instance Diff TL.Text where
-    type Edit TL.Text = EqSeqPatch TL.Text
-    diff  = eqSeqDiff  (TL.splitOn "\n")
-    patch = eqSeqPatch (TL.splitOn "\n") (TL.intercalate "\n")
-    undiff = eqSeqUndiff (TL.intercalate "\n")
+    type Edit TL.Text = LinesPatch TL.Text
+
+-- | Newtype wrapper for line-by-line diffing
+newtype Lines t = Lines { getLines :: t }
+    deriving (Show, Eq, Read, Generic)
+
+instance SC.ConvertibleStrings s t => SC.ConvertibleStrings s (Lines t) where
+    convertString = Lines . SC.convertString
+
+instance SC.ConvertibleStrings t s => SC.ConvertibleStrings (Lines t) s where
+    convertString = SC.convertString . getLines
+
+-- | Line-by-line diffing of strings
+instance (SC.ConvertibleStrings t T.Text, SC.ConvertibleStrings T.Text t, Eq t)
+        => Diff (Lines t) where
+    type Edit (Lines t) = LinesPatch (Lines t)
 
 -- | Changes are purely inclusion/exclusion
 instance Ord a => Diff (S.Set a) where

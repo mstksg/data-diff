@@ -45,6 +45,7 @@ library:
   - type-combinators
   - unordered-containers
   - vector
+  - string-conversions
 
 executables:
   generics-diff-pandoc:

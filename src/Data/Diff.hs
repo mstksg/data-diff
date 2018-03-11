@@ -1,10 +1,13 @@
-{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeFamilies    #-}
 
 module Data.Diff (
     Diff(..)
   , Patch(..), DiffLevel(..), MergeResult(..)
-  , merge, compareDiff, catLevels
-  , Edit'(..), diff', patch'
+  , merge, catLevels, normDL, dlPercent, percentDiff, prodPatchLevel
+  , compareDiff
+  , DefaultDiff(..)
+  , Edit'(..), diff', patch', undiff'
   , Swap(..), eqDiff, eqPatch
   , EqDiff(..)
   -- * Generic implementations
@@ -13,20 +16,38 @@ module Data.Diff (
   , gmergePatch
   -- ** Diff
   -- *** Sequences
+  -- **** Diff
+  , SeqPatchAt(..)
+  , SeqPatch
   , listDiff
   , listPatch
-  , SeqPatchAt(..), SeqPatch
+  , listUndiff
   , seqDiff
   , seqPatch
+  , seqUndiff
+  -- **** Eq
+  , EqSeqPatch(..)
+  , eqListDiff
+  , eqListPatch
+  , eqListUndiff
+  , eqSeqDiff
+  , eqSeqPatch
+  , eqSeqUndiff
+  -- **** Line-by-line
+  , LinesPatch(..)
+  , Lines(..)
   -- *** Generic ADTs
   , GPatch(..)
   , gdiff
   , gdiff'
   , gpatch
+  , gundiff
   , GPatchProd(..)
   , gdiffProd
   , gpatchProd
+  , gundiffProd
   , SumDiff(..)
+  , CtrDiff(..)
   -- ** Maps
   , ValDiff(..)
   , MapDiff(..)
