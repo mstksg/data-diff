@@ -16,8 +16,10 @@ class (Eq a, Patch (Edit a)) => Diff a where {
 }
 diff :: Diff a => a -> a -> Edit a
 patch :: Diff a => Edit a -> a -> Maybe a
+undiff :: Diff a => Edit a -> (a, a)
 diff :: (Diff a, DefaultDiff (Edit a) a) => a -> a -> Edit a
 patch :: (Diff a, DefaultDiff (Edit a) a) => Edit a -> a -> Maybe a
+undiff :: (Diff a, DefaultDiff (Edit a) a) => Edit a -> (a, a)
 class Patch a
 
 -- | <a>Level</a> of patch
@@ -81,8 +83,8 @@ patch' :: Diff a => Edit' a -> a -> Maybe a
 
 -- | Patch type that treats all changes as total differences
 data Swap a
-NoChange :: Swap a
-Replace :: a -> Swap a
+NoChange :: a -> Swap a
+Replace :: a -> a -> Swap a
 
 -- | <a>diff</a> for all instances of <a>Eq</a>
 eqDiff :: Eq a => a -> a -> Swap a
@@ -145,7 +147,7 @@ gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SD] :: (Index as :&: CtrDiff f g as) a -> SumDiff f g as
 data ValDiff a
-VDDel :: ValDiff a
+VDDel :: a -> ValDiff a
 VDIns :: a -> ValDiff a
 VDMod :: (Edit a) -> ValDiff a
 newtype MapDiff m a
