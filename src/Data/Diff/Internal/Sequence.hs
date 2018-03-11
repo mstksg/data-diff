@@ -249,21 +249,21 @@ instance Diff Lines where
     diff  = eqSeqDiff  (map T.unpack . T.splitOn "\n" . T.pack . getLines)
     patch = eqSeqPatch (map T.unpack . T.splitOn "\n" . T.pack . getLines)
                        (Lines . T.unpack . T.intercalate "\n" . map T.pack)
-    undiff = undefined
+    undiff = eqSeqUndiff (Lines . T.unpack . T.intercalate "\n" . map T.pack)
 
 -- | Line-by-line diff
 instance Diff T.Text where
     type Edit T.Text = EqSeqPatch T.Text
     diff  = eqSeqDiff  (T.splitOn "\n")
     patch = eqSeqPatch (T.splitOn "\n") (T.intercalate "\n")
-    undiff = undefined
+    undiff = eqSeqUndiff (T.intercalate "\n")
 
 -- | Line-by-line diff
 instance Diff TL.Text where
     type Edit TL.Text = EqSeqPatch TL.Text
     diff  = eqSeqDiff  (TL.splitOn "\n")
     patch = eqSeqPatch (TL.splitOn "\n") (TL.intercalate "\n")
-    undiff = undefined
+    undiff = eqSeqUndiff (TL.intercalate "\n")
 
 -- | Changes are purely inclusion/exclusion
 instance Ord a => Diff (S.Set a) where
