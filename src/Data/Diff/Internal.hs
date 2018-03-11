@@ -159,11 +159,23 @@ class Patch a where
         -> MergeResult a
     mergePatch = gmergePatch
 
+-- | Diffable types
+--
+-- @
+-- 'uncurry' 'diff' . 'undiff' = 'id'
+-- 'undiff' . 'uncurry' 'diff' = 'id'
+-- 'patch' ('diff' x y) x = 'Just' y
+-- @
 class (Eq a, Patch (Edit a)) => Diff a where
     type Edit a
     type instance Edit a = GPatch a
+    -- | Generate a patch between two values, that can be used to transform
+    -- one value into the other
     diff      :: a -> a -> Edit a
+    -- | Apply a patch to a value
     patch     :: Edit a -> a -> Maybe a
+    -- | Deconstruct a patch to recover the original value used to create
+    -- it, and the application of the patch to that original value
     undiff    :: Edit a -> (a, a)
 
     default diff

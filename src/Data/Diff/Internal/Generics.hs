@@ -21,8 +21,6 @@ module Data.Diff.Internal.Generics (
   , undiffSOP
   ) where
 
--- import           Data.Bifunctor
--- import           Data.Function
 import           Control.Monad
 import           Data.Kind
 import           Data.Type.Combinator
