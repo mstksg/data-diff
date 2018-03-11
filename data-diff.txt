@@ -87,12 +87,32 @@ NoConflict :: a -> MergeResult a
 -- | Left-biased merge of two diffable values.
 merge :: Diff a => a -> a -> a -> MergeResult a
 
--- | Get <a>DiffLevel</a> between two items
-compareDiff :: Diff a => a -> a -> DiffLevel
-
 -- | Merge all <a>DiffLevel</a> in a <a>Foldable</a> container, treating
 --   them all as equally weighted.
 catLevels :: Foldable f => f DiffLevel -> DiffLevel
+
+-- | Rescale <a>DiffLevel</a> to be out of a given total.
+--   
+--   TODO: what about 0?
+normDL :: Double -> DiffLevel -> DiffLevel
+
+-- | Calculate percent difference.
+--   
+--   TODO: What about 0?
+dlPercent :: DiffLevel -> Double
+
+-- | How different two items are, as a percentage
+percentDiff :: Diff a => a -> a -> Double
+
+-- | <a>DiffLevel</a> of a <a>Prod</a> of <a>Edit</a>s
+prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
+
+-- | Get <a>DiffLevel</a> between two items
+compareDiff :: Diff a => a -> a -> DiffLevel
+class DefaultDiff p a
+defaultDiff :: DefaultDiff p a => a -> a -> p
+defaultPatch :: DefaultDiff p a => p -> a -> Maybe a
+defaultUndiff :: DefaultDiff p a => p -> (a, a)
 
 -- | Newtype used to get around partial application of type families
 newtype Edit' a
@@ -104,6 +124,9 @@ diff' :: Diff a => a -> a -> Edit' a
 
 -- | <a>patch'</a> lifted to <a>Edit'</a>
 patch' :: Diff a => Edit' a -> a -> Maybe a
+
+-- | <a>undiff'</a> lifted to <a>Edit'</a>
+undiff' :: Diff a => Edit' a -> (a, a)
 
 -- | Patch type that treats all changes as total differences
 data Swap a
@@ -129,13 +152,14 @@ gpatchLevel :: forall a ass. (Generic a, Code a ~ ass, Every (Every Patch) ass) 
 -- | <a>mergePatch</a> written to work for any <b>product types</b>
 --   deriving <a>Generic</a>.
 gmergePatch :: forall a as. (IsProductType a as, Every Patch as) => a -> a -> MergeResult a
-listDiff :: Diff a => [a] -> [a] -> SeqPatch a
-listPatch :: Eq a => SeqPatch a -> [a] -> Maybe [a]
-newtype SeqPatch a
-SP :: [Diff a] -> SeqPatch a
-[getSP] :: SeqPatch a -> [Diff a]
-seqDiff :: Diff a => (t -> [a]) -> t -> t -> SeqPatch a
-seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatch a -> t -> Maybe t
+listDiff :: forall p a. (KnownNat p, Diff a) => [a] -> [a] -> SeqPatchAt p a
+listPatch :: Eq a => SeqPatchAt p a -> [a] -> Maybe [a]
+newtype SeqPatchAt (p :: Nat) a
+SPA :: [Diff a] -> SeqPatchAt a
+[getSPA] :: SeqPatchAt a -> [Diff a]
+type SeqPatch = SeqPatchAt 50
+seqDiff :: (KnownNat p, Diff a) => (t -> [a]) -> t -> t -> SeqPatchAt p a
+seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatchAt p a -> t -> Maybe t
 
 -- | Generic patch type for any types deriving <a>Generic</a>.
 newtype GPatch a
@@ -155,6 +179,9 @@ gdiff' :: forall a. (Generic a, Every (Every Diff) (Code a)) => a -> a -> GPatch
 -- | <a>patch</a> intented to work for all instances of <a>Generic</a>.
 gpatch :: forall a. (Generic a, Every (Every Diff) (Code a)) => GPatch a -> a -> Maybe a
 
+-- | <a>undiff</a> intended to work for all instances of <a>Generic</a>.
+gundiff :: forall a. (Generic a, Every (Every Diff) (Code a)) => GPatch a -> (a, a)
+
 -- | Generic patch type for all product types that are instances of
 --   <a>Generic</a>.
 data GPatchProd a
@@ -168,8 +195,16 @@ gdiffProd :: forall a as. (IsProductType a as, Every Diff as) => a -> a -> GPatc
 -- | <a>patch</a> intended to work for all product types that are instances
 --   of <a>Generic</a>.
 gpatchProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -> a -> Maybe a
+
+-- | <a>undiff</a> intended to work for all product types that are
+--   instances of <a>Generic</a>.
+gundiffProd :: forall a as. (IsProductType a as, Every Diff as) => GPatchProd a -> (a, a)
 data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type
 [SD] :: (Index as :&: CtrDiff f g as) a -> SumDiff f g as
+data CtrDiff :: (k -> Type) -> (k -> Type) -> [k] -> k -> Type
+[CDEdit] :: g a -> CtrDiff f g as a
+[CDName] :: (Index as :&: g) a -> CtrDiff f g as a
+[CDDiff] :: f a -> (Index as :&: f) b -> CtrDiff f g as a
 data ValDiff a
 VDDel :: a -> ValDiff a
 VDIns :: a -> ValDiff a
