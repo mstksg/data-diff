@@ -161,7 +161,7 @@ class (Eq a, Patch (Edit a)) => Diff a where
     type instance Edit a = GPatch a
     diff      :: a -> a -> Edit a
     patch     :: Edit a -> a -> Maybe a
-    -- undiff    :: Edit a -> (a, a)
+    undiff    :: Edit a -> (a, a)
 
     default diff
         :: DefaultDiff (Edit a) a
@@ -176,16 +176,6 @@ class (Eq a, Patch (Edit a)) => Diff a where
         -> a
         -> Maybe a
     patch = defaultPatch
-
-    -- default patch
-    --     :: ( Edit a ~ GPatch a
-    --        , SOP.Generic a
-    --        , Every (Every Diff) (SOP.Code a)
-    --        )
-    --     => Edit a
-    --     -> a
-    --     -> Maybe a
-    -- patch = gpatch
 
 class DefaultDiff p a where
     defaultDiff :: a -> a -> p
@@ -291,9 +281,9 @@ gpPatchLevel
     -> DiffLevel
 gpPatchLevel (GP (SD (i :&: cd))) = case cd of
     CDEdit es         -> prodPatchLevel es \\ every @_ @(Every Diff) i
-    CDName (_ :&: es) -> catLevels [TotalDiff 1, prodPatchLevel es]
+    CDName (_ :&: es) -> catLevels [TotalDiff 1, prodPatchLevel es]     -- TODO: rescale appropriately
                                       \\ every @_ @(Every Diff) i
-    CDDiff _          -> TotalDiff 1
+    CDDiff _ _        -> TotalDiff 1
 
 -- | 'DiffLevel' of a 'Prod' of 'Edit's
 prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
@@ -316,7 +306,7 @@ gpMergePatch (GP (SD (i1 :&: cd1)))
       CDEdit es1 -> case cd2 of
         CDEdit es2 -> CDEdit <$> prodMergePatch es1 es2
         CDName (j2 :&: es2) -> CDName . (j2 :&:) <$> prodMergePatch es1 es2
-        CDDiff _ -> case prodPatchLevel es1 of
+        CDDiff _ _ -> case prodPatchLevel es1 of
           NoDiff _ -> NoConflict cd2
           _        -> Conflict cd1
       CDName (j1 :&: es1) -> case cd2 of
@@ -326,13 +316,16 @@ gpMergePatch (GP (SD (i1 :&: cd1)))
             Just Refl -> NoConflict ()
             Nothing   -> Conflict   ()
           CDName . (j1 :&:) <$> prodMergePatch es1 es2
-        CDDiff (_ :&: _) -> Conflict cd2
-      CDDiff (j1 :&: xs) -> case cd2 of
+        CDDiff _ (_ :&: _) -> Conflict cd2
+      CDDiff os (j1 :&: xs) -> case cd2 of
         CDEdit es2 -> case prodPatchLevel es2 of
           NoDiff _ -> NoConflict cd1
           _        -> Conflict cd1
         CDName _ -> Conflict cd1
-        CDDiff (j2 :&: ys) ->
+        CDDiff os' (j2 :&: ys) -> do
+          izipProdWithA_ (\k o' o -> unless (o == o') Incompatible
+                              \\ every @_ @Diff k
+                         ) os' os
           case testEquality j1 j2 of
             Just Refl -> do
               zs <- izipProdWithA (\i (I x) (I y) ->
@@ -342,7 +335,7 @@ gpMergePatch (GP (SD (i1 :&: cd1)))
                                   )
                       xs
                       ys     \\ every @_ @(Every Diff) j1
-              pure (CDDiff (j1 :&: zs))
+              pure (CDDiff os (j1 :&: zs))
             Nothing -> Conflict cd1
     Nothing   -> Incompatible
 
@@ -400,13 +393,16 @@ gpatch
     -> a
     -> Maybe a
 gpatch e = fmap (SOP.to . sopSop . map1 (map1 (SOP.I . getI)))
-         . patchSOP p (getGP e)
+         . patchSOP p q (getGP e)
          . map1 (map1 (I . SOP.unI))
          . sopSOP
          . SOP.from
   where
     p :: Index (SOP.Code a) as -> Index as b -> Edit' b -> b -> Maybe b
     p i j = patch' \\ every @_ @Diff         j
+                   \\ every @_ @(Every Diff) i
+    q :: Index (SOP.Code a) as -> Index as b -> b -> b -> Bool
+    q i j = (==)   \\ every @_ @Diff j
                    \\ every @_ @(Every Diff) i
 
 -- | Generic patch type for all product types that are instances of

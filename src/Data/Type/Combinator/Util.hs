@@ -10,6 +10,7 @@ module Data.Type.Combinator.Util (
   , zipProdWith
   , izipProdWith
   , izipProdWithA
+  , izipProdWithA_
   , sopProd
   , sopSOP
   , sopSop
@@ -60,6 +61,19 @@ izipProdWithA f = \case
       Ø -> pure Ø
     x :< xs -> \case
       y :< ys -> (:<) <$> f IZ x y <*> izipProdWithA (f . IS) xs ys
+
+izipProdWithA_
+    :: forall f g t as. Applicative t
+    => (forall a. Index as a -> f a -> g a -> t ())
+    -> Prod f as
+    -> Prod g as
+    -> t ()
+izipProdWithA_ f = \case
+    Ø -> \case
+      Ø -> pure ()
+    x :< xs -> \case
+      y :< ys -> f IZ x y *> izipProdWithA_ (f . IS) xs ys
+
 
 zipProdWith
     :: forall f g h as. ()

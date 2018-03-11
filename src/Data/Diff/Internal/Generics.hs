@@ -20,6 +20,7 @@ module Data.Diff.Internal.Generics (
   , patchSOP
   ) where
 
+import           Control.Monad
 import           Data.Kind
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
@@ -39,7 +40,7 @@ data SumDiff :: (k -> Type) -> (k -> Type) -> [k] -> Type where
 data CtrDiff :: (k -> Type) -> (k -> Type) -> [k] -> k -> Type where
     CDEdit :: g a -> CtrDiff f g as a
     CDName :: (Index as :&: g) a -> CtrDiff f g as a
-    CDDiff :: (Index as :&: f) b -> CtrDiff f g as a
+    CDDiff :: f a -> (Index as :&: f) b -> CtrDiff f g as a
 
 -- | Version of 'sumDiff'' that treats constructor changes as total edits
 -- even if the contents have the same type
@@ -52,7 +53,7 @@ sumDiff'
 sumDiff' f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
     case testEquality i j of
       Just Refl -> SD ( i :&: CDEdit (f (i :&: x :&: y)) )
-      Nothing   -> SD ( i :&: CDDiff (j :&: y)  )
+      Nothing   -> SD ( i :&: CDDiff x (j :&: y)  )
 
 -- | Version of 'sumDiff' that treats constructor changes as partial edits
 -- if the contents have the same type
@@ -73,7 +74,7 @@ sumDiff f (sumIx -> Some (i :&: x)) (sumIx -> Some (j :&: y)) =
         | otherwise -> SD ( i
                         :&: CDName (j :&: f ((i :&: x) :&: (j :&: y)))
                           )
-      Nothing   -> SD ( i :&: CDDiff (j :&: y) )
+      Nothing   -> SD ( i :&: CDDiff x (j :&: y) )
   where
     tr :: Typeable a => p a -> TypeRep a
     tr _ = typeRep
@@ -97,7 +98,7 @@ diffSOP' f = sumDiff' combine
 
 diffSOP
     :: forall f ass. (Every Typeable ass)
-    => (forall as a. Index ass as -> Index as a -> a -> a -> f a)
+    => (forall as a. Index ass as -> Index as a -> a -> a -> f a)   -- ^ diff
     -> Sum Tuple ass
     -> Sum Tuple ass
     -> SumDiff Tuple (Prod f) ass
@@ -114,11 +115,12 @@ diffSOP f = sumDiff combine
 
 patchSOP
     :: forall f ass. ()
-    => (forall as a. Index ass as -> Index as a -> f a -> a -> Maybe a)
+    => (forall as a. Index ass as -> Index as a -> f a -> a -> Maybe a)     -- ^ patch
+    -> (forall as a. Index ass as -> Index as a -> a -> a -> Bool)          -- ^ eq
     -> SumDiff Tuple (Prod f) ass
     -> Sum Tuple ass
     -> Maybe (Sum Tuple ass)
-patchSOP f = \case
+patchSOP f g = \case
     SD (i :&: CDEdit es) -> \xss -> do
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
@@ -127,8 +129,9 @@ patchSOP f = \case
       xs <- TCS.index i xss
       ys <- itraverse1 (\k -> fmap I . go i k) (zipProd es xs)
       return (injectSum j ys)
-    SD (i :&: CDDiff (j :&: ys)) -> \xss -> do
-      _  <- TCS.index i xss
+    SD (i :&: CDDiff xs (j :&: ys)) -> \xss -> do
+      xs' <- TCS.index i xss
+      izipProdWithA_ (\k (I x') (I x) -> guard $ g i k x' x) xs' xs
       return (injectSum j ys)
   where
     go  :: Index ass as -> Index as a -> (f :&: I) a -> Maybe a
