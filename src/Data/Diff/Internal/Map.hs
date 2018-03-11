@@ -17,16 +17,18 @@ module Data.Diff.Internal.Map (
 -- import           Data.Semigroup hiding (diff)
 -- import qualified Data.Set              as S
 import           Control.Monad
+import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Either
 import           Data.Foldable
 import           Data.Hashable
+import           Data.Maybe
 import           GHC.Generics             (Generic)
 import qualified Data.HashMap.Lazy        as HM
 import qualified Data.IntMap              as IM
 import qualified Data.Map                 as M
 
-data ValDiff a = VDDel
+data ValDiff a = VDDel a
                | VDIns a
                | VDMod (Edit a)
   deriving (Generic)
@@ -34,15 +36,17 @@ data ValDiff a = VDDel
 deriving instance (Show a, Show (Edit a)) => Show (ValDiff a)
 
 mergeVD :: Diff a => ValDiff a -> ValDiff a -> MergeResult (ValDiff a)
-mergeVD   VDDel     VDDel     = NoConflict VDDel
-mergeVD   VDDel     (VDIns _) = Incompatible
-mergeVD   VDDel     (VDMod _) = Conflict VDDel
-mergeVD   (VDIns _) VDDel     = Incompatible
+mergeVD l@(VDDel x) (VDDel y)
+    | x == y    = NoConflict l
+    | otherwise = Incompatible
+mergeVD   (VDDel _) (VDIns _) = Incompatible
+mergeVD l@(VDDel _) (VDMod _) = Conflict l
+mergeVD   (VDIns _) (VDDel _) = Incompatible
 mergeVD l@(VDIns x) (VDIns y)
     | x == y    = NoConflict l
     | otherwise = Conflict l
 mergeVD   (VDIns _) (VDMod _) = Incompatible
-mergeVD l@(VDMod _) VDDel     = Conflict l
+mergeVD l@(VDMod _) (VDDel _) = Conflict l
 mergeVD   (VDMod _) (VDIns _) = Incompatible
 mergeVD   (VDMod e) (VDMod f) = VDMod <$> mergePatch e f
 
@@ -54,10 +58,15 @@ deriving instance (Eq (m (ValDiff a))) => Eq (MapDiff m a)
 deriving instance (Ord (m (ValDiff a))) => Ord (MapDiff m a)
 deriving instance (Read (m (ValDiff a))) => Read (MapDiff m a)
 
-splitVD :: ValDiff a -> Either (Maybe a) (Edit a)
-splitVD VDDel     = Left Nothing
-splitVD (VDIns x) = Left (Just x)
+splitVD :: ValDiff a -> Either (Either a a) (Edit a)
+splitVD (VDDel x) = Left (Left  x)
+splitVD (VDIns x) = Left (Right x)
 splitVD (VDMod e) = Right e
+
+undiffVD :: Diff a => ValDiff a -> (Maybe a, Maybe a)
+undiffVD (VDDel x) = (Just x , Nothing)
+undiffVD (VDIns x) = (Nothing, Just x)
+undiffVD (VDMod e) = bimap Just Just $ undiff e
 
 fpl :: (Diff a, Foldable m) => MapDiff m a -> DiffLevel
 fpl (partitionEithers . map splitVD . toList . getMD -> (lr, b))
@@ -96,7 +105,7 @@ md  :: Functor m
     -> m a
     -> m a
     -> MapDiff m a
-md unions difference intersect m1 m2 = MD $ unions [ VDDel <$ l
+md unions difference intersect m1 m2 = MD $ unions [ VDDel <$> l
                                                    , VDIns <$> r
                                                    , VDMod <$> b
                                                    ]
@@ -118,7 +127,7 @@ mp folder alter (MD es) m0 = folder go (Just m0) es
 
 alterFunc :: Diff a => ValDiff a -> Maybe a -> Maybe (Maybe a)
 alterFunc = \case
-  VDDel -> \case
+  VDDel _ -> \case
     Nothing -> Nothing
     Just _  -> Just Nothing
   VDIns x -> \case
@@ -128,15 +137,31 @@ alterFunc = \case
     Nothing -> Nothing
     Just x  -> Just <$> patch e x
 
+mu  :: Diff a
+    => (m (ValDiff a) -> [(k, ValDiff a)])
+    -> ([(k, a)] -> m a)
+    -> MapDiff m a
+    -> (m a, m a)
+mu f g (MD es) = bimap g g
+               . (\xs -> ( mapMaybe (sequence . second fst) xs
+                         , mapMaybe (sequence . second snd) xs
+                         )
+                 )
+               . (map . second) undiffVD
+               . f
+               $ es
+
 instance (Ord k, Diff a) => Diff (M.Map k a) where
     type Edit (M.Map k a) = MapDiff (M.Map k) a
-    diff = md M.unions M.difference (M.intersectionWith diff)
-    patch = mp M.foldlWithKey' (M.alterF . alterFunc)
+    diff   = md M.unions M.difference (M.intersectionWith diff)
+    patch  = mp M.foldlWithKey' (M.alterF . alterFunc)
+    undiff = mu M.toList M.fromAscList
 
 instance Diff a => Diff (IM.IntMap a) where
     type Edit (IM.IntMap a) = MapDiff IM.IntMap a
     diff = md IM.unions IM.difference (IM.intersectionWith diff)
     patch = mp IM.foldlWithKey' (IM.alterF . alterFunc)
+    undiff = mu IM.toList IM.fromAscList
 
 hmAlterF
     :: (Hashable k, Eq k, Functor f)
@@ -153,4 +178,5 @@ instance (Hashable k, Eq k, Diff a) => Diff (HM.HashMap k a) where
     type Edit (HM.HashMap k a) = MapDiff (HM.HashMap k) a
     diff = md HM.unions HM.difference (HM.intersectionWith diff)
     patch = mp HM.foldlWithKey' (hmAlterF . alterFunc)
+    undiff = mu HM.toList HM.fromList
 
