@@ -152,14 +152,33 @@ gpatchLevel :: forall a ass. (Generic a, Code a ~ ass, Every (Every Patch) ass) 
 -- | <a>mergePatch</a> written to work for any <b>product types</b>
 --   deriving <a>Generic</a>.
 gmergePatch :: forall a as. (IsProductType a as, Every Patch as) => a -> a -> MergeResult a
-listDiff :: forall p a. (KnownNat p, Diff a) => [a] -> [a] -> SeqPatchAt p a
-listPatch :: Eq a => SeqPatchAt p a -> [a] -> Maybe [a]
 newtype SeqPatchAt (p :: Nat) a
 SPA :: [Diff a] -> SeqPatchAt a
 [getSPA] :: SeqPatchAt a -> [Diff a]
 type SeqPatch = SeqPatchAt 50
+listDiff :: forall p a. (KnownNat p, Diff a) => [a] -> [a] -> SeqPatchAt p a
+listPatch :: Eq a => SeqPatchAt p a -> [a] -> Maybe [a]
+listUndiff :: SeqPatchAt p a -> ([a], [a])
 seqDiff :: (KnownNat p, Diff a) => (t -> [a]) -> t -> t -> SeqPatchAt p a
 seqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> SeqPatchAt p a -> t -> Maybe t
+seqUndiff :: ([a] -> t) -> SeqPatchAt p a -> (t, t)
+newtype EqSeqPatch a
+ESP :: SeqPatchAt 0 (EqDiff a) -> EqSeqPatch a
+[getESP] :: EqSeqPatch a -> SeqPatchAt 0 (EqDiff a)
+eqListDiff :: Eq a => [a] -> [a] -> EqSeqPatch a
+eqListPatch :: Eq a => EqSeqPatch a -> [a] -> Maybe [a]
+eqListUndiff :: EqSeqPatch a -> ([a], [a])
+eqSeqDiff :: Eq a => (t -> [a]) -> t -> t -> EqSeqPatch a
+eqSeqPatch :: Eq a => (t -> [a]) -> ([a] -> t) -> EqSeqPatch a -> t -> Maybe t
+eqSeqUndiff :: Eq a => ([a] -> t) -> EqSeqPatch a -> (t, t)
+newtype LinesPatch t
+LP :: EqSeqPatch Text -> LinesPatch t
+[getLP] :: LinesPatch t -> EqSeqPatch Text
+
+-- | Newtype wrapper for line-by-line diffing
+newtype Lines t
+Lines :: t -> Lines t
+[getLines] :: Lines t -> t
 
 -- | Generic patch type for any types deriving <a>Generic</a>.
 newtype GPatch a
