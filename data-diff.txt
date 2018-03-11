@@ -10,15 +10,39 @@
 @version 0.1.0.0
 
 module Data.Diff
+
+-- | Diffable types
+--   
+--   <pre>
+--   <a>uncurry</a> <a>diff</a> . <a>undiff</a> = <a>id</a>
+--   <a>undiff</a> . <a>uncurry</a> <a>diff</a> = <a>id</a>
+--   <a>patch</a> (<a>diff</a> x y) x = <a>Just</a> y
+--   </pre>
 class (Eq a, Patch (Edit a)) => Diff a where {
     type family Edit a;
     type Edit a = GPatch a;
 }
+
+-- | Generate a patch between two values, that can be used to transform one
+--   value into the other
 diff :: Diff a => a -> a -> Edit a
+
+-- | Apply a patch to a value
 patch :: Diff a => Edit a -> a -> Maybe a
+
+-- | Deconstruct a patch to recover the original value used to create it,
+--   and the application of the patch to that original value
 undiff :: Diff a => Edit a -> (a, a)
+
+-- | Generate a patch between two values, that can be used to transform one
+--   value into the other
 diff :: (Diff a, DefaultDiff (Edit a) a) => a -> a -> Edit a
+
+-- | Apply a patch to a value
 patch :: (Diff a, DefaultDiff (Edit a) a) => Edit a -> a -> Maybe a
+
+-- | Deconstruct a patch to recover the original value used to create it,
+--   and the application of the patch to that original value
 undiff :: (Diff a, DefaultDiff (Edit a) a) => Edit a -> (a, a)
 class Patch a
 
