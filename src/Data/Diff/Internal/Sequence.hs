@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeFamilies               #-}
@@ -12,18 +14,18 @@ module Data.Diff.Internal.Sequence (
     SeqPatch(..)
   , listDiff
   , listPatch
+  , listUndiff
   , seqDiff
   , seqPatch
-  , isListDiff
-  , isListPatch
+  , seqUndiff
   -- * Eq
   , EqSeqPatch(..)
   , eqListDiff
   , eqListPatch
+  , eqListUndiff
   , eqSeqDiff
   , eqSeqPatch
-  , eqIsListDiff
-  , eqIsListPatch
+  , eqSeqUndiff
   -- * Newtype
   , Lines(..)
   ) where
@@ -59,7 +61,7 @@ instance Diff a => Patch (SeqPatch a) where
         dLevel (D.First _ ) = TotalDiff 1
         dLevel (D.Second _) = TotalDiff 1
         dLevel (D.Both x y) = compareDiff x y
-    mergePatch (SP es1) (SP es2)
+    mergePatch es1 es2
         | xs1 == xs2 = listDiff xs1
                      . concat
                    <$> traverse dehunk (D.diff3By (\x y -> percentDiff x y < 0.5)
@@ -67,20 +69,11 @@ instance Diff a => Patch (SeqPatch a) where
                                        )
         | otherwise  = Incompatible
       where
-        (xs1, ys) = recover es1
-        (xs2, zs) = recover es2
+        (xs1, ys) = listUndiff es1
+        (xs2, zs) = listUndiff es2
 
 newtype EqSeqPatch a = ESP { getESP :: SeqPatch (EqDiff a) }
   deriving (Show, Eq, Patch, Generic)
-
-recover :: forall a. [D.Diff a] -> ([a], [a])
-recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
-  where
-    go :: D.Diff a -> (Endo [a], Endo [a])
-    go = \case
-      D.Both   x y -> (S.diff [x], S.diff [y])
-      D.First  x   -> (S.diff [x], mempty    )
-      D.Second   y -> (mempty    , S.diff [y])
 
 dehunk
     :: forall a. Diff a
@@ -148,6 +141,12 @@ seqPatch
     -> Maybe t
 seqPatch f g d = fmap g . listPatch d . f
 
+seqUndiff
+    :: ([a] -> t)
+    -> SeqPatch a
+    -> (t, t)
+seqUndiff f = bimap f f . listUndiff
+
 eqSeqPatch
     :: Eq a
     => (t -> [a])
@@ -157,33 +156,12 @@ eqSeqPatch
     -> Maybe t
 eqSeqPatch f g d = fmap g . eqListPatch d . f
 
-isListDiff
-    :: (E.IsList l, Diff (E.Item l))
-    => l
-    -> l
-    -> SeqPatch (E.Item l)
-isListDiff = seqDiff E.toList
-
-eqIsListDiff
-    :: (E.IsList l, Eq (E.Item l))
-    => l
-    -> l
-    -> EqSeqPatch (E.Item l)
-eqIsListDiff = eqSeqDiff E.toList
-
-isListPatch
-    :: (E.IsList l, Diff (E.Item l))
-    => SeqPatch (E.Item l)
-    -> l
-    -> Maybe l
-isListPatch = seqPatch E.toList E.fromList
-
-eqIsListPatch
-    :: (E.IsList l, Eq (E.Item l))
-    => EqSeqPatch (E.Item l)
-    -> l
-    -> Maybe l
-eqIsListPatch = eqSeqPatch E.toList E.fromList
+eqSeqUndiff
+    :: Eq a
+    => ([a] -> t)
+    -> EqSeqPatch a
+    -> (t, t)
+eqSeqUndiff f = bimap f f . eqListUndiff
 
 listPatch
     :: Eq a
@@ -209,37 +187,57 @@ eqListPatch
     -> Maybe [a]
 eqListPatch p = (fmap . map) getEqDiff . listPatch (getESP p) . map EqDiff
 
+eqListUndiff
+    :: EqSeqPatch a
+    -> ([a], [a])
+eqListUndiff = bimap (map getEqDiff) (map getEqDiff) . listUndiff . getESP
+
+listUndiff
+    :: SeqPatch a
+    -> ([a], [a])
+listUndiff (SP es0) = recover es0
+  where
+    recover :: forall b. [D.Diff b] -> ([b], [b])
+    recover = bimap (`appEndo` []) (`appEndo` []) . foldMap go
+      where
+        go :: D.Diff b -> (Endo [b], Endo [b])
+        go = \case
+          D.Both   x y -> (S.diff [x], S.diff [y])
+          D.First  x   -> (S.diff [x], mempty    )
+          D.Second   y -> (mempty    , S.diff [y])
+
+
+instance (E.IsList l, e ~ E.Item l, Diff e) => DefaultDiff (SeqPatch e) l  where
+    defaultDiff   = seqDiff E.toList
+    defaultPatch  = seqPatch E.toList E.fromList
+    defaultUndiff = seqUndiff E.fromList
+
+instance (E.IsList l, e ~ E.Item l, Eq e) => DefaultDiff (EqSeqPatch e) l  where
+    defaultDiff   = eqSeqDiff E.toList
+    defaultPatch  = eqSeqPatch E.toList E.fromList
+    defaultUndiff = eqSeqUndiff E.fromList
+
 -- | Items that aren't completely different are considered modifications,
 -- not insertions/deletions.  If this is not desired behavior, map with
 -- 'EqDiff'.
 instance Diff a => Diff [a] where
     type Edit [a] = SeqPatch a
-    diff  = listDiff
-    patch = listPatch
 
 -- | See notes for list instance.
 instance Diff a => Diff (V.Vector a) where
     type Edit (V.Vector a) = SeqPatch a
-    diff  = isListDiff
-    patch = isListPatch
 
 -- | See notes for list instance.
 instance (Diff a, VS.Storable a) => Diff (VS.Vector a) where
     type Edit (VS.Vector a) = SeqPatch a
-    diff  = isListDiff
-    patch = isListPatch
 
 -- | See notes for list instance.
 instance (Diff a, VU.Unbox a) => Diff (VU.Vector a) where
     type Edit (VU.Vector a) = SeqPatch a
-    diff  = isListDiff
-    patch = isListPatch
 
 -- | See notes for list instance.
 instance (Diff a, VP.Prim a) => Diff (VP.Vector a) where
     type Edit (VP.Vector a) = SeqPatch a
-    diff  = isListDiff
-    patch = isListPatch
 
 -- | String that is line-by-line diff'd
 newtype Lines = Lines { getLines :: String }
@@ -251,33 +249,30 @@ instance Diff Lines where
     diff  = eqSeqDiff  (map T.unpack . T.splitOn "\n" . T.pack . getLines)
     patch = eqSeqPatch (map T.unpack . T.splitOn "\n" . T.pack . getLines)
                        (Lines . T.unpack . T.intercalate "\n" . map T.pack)
+    undiff = undefined
 
 -- | Line-by-line diff
 instance Diff T.Text where
     type Edit T.Text = EqSeqPatch T.Text
     diff  = eqSeqDiff  (T.splitOn "\n")
     patch = eqSeqPatch (T.splitOn "\n") (T.intercalate "\n")
+    undiff = undefined
 
 -- | Line-by-line diff
 instance Diff TL.Text where
     type Edit TL.Text = EqSeqPatch TL.Text
     diff  = eqSeqDiff  (TL.splitOn "\n")
     patch = eqSeqPatch (TL.splitOn "\n") (TL.intercalate "\n")
+    undiff = undefined
 
 -- | Changes are purely inclusion/exclusion
 instance Ord a => Diff (S.Set a) where
     type Edit (S.Set a) = EqSeqPatch a
-    diff  = eqSeqDiff  S.toList
-    patch = eqSeqPatch S.toList S.fromList
 
 -- | Changes are purely inclusion/exclusion
 instance Diff IS.IntSet where
     type Edit IS.IntSet = EqSeqPatch Int
-    diff  = eqSeqDiff  IS.toList
-    patch = eqSeqPatch IS.toList IS.fromList
 
 -- | Changes are purely inclusion/exclusion
 instance (Hashable a, Eq a) => Diff (HS.HashSet a) where
     type Edit (HS.HashSet a) = EqSeqPatch a
-    diff  = eqSeqDiff  HS.toList
-    patch = eqSeqPatch HS.toList HS.fromList

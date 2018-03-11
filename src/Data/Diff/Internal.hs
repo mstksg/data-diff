@@ -505,37 +505,39 @@ gundiffProd (GPP es) = (\(xs :&: ys) -> (unsop xs, unsop ys))
     unsop = SOP.to . SOP.SOP . SOP.Z . prodSOP . map1 (SOP.I . getI)
 
 -- | Patch type that treats all changes as total differences
-data Swap a = NoChange
-            | Replace a
+data Swap a = NoChange a
+            | Replace a a
   deriving (Generic, Eq, Ord, Show, Read)
 
 -- | 'diff' for all instances of 'Eq'
 eqDiff :: Eq a => a -> a -> Swap a
 eqDiff x y
-    | x == y    = NoChange
-    | otherwise = Replace y
+    | x == y    = NoChange x
+    | otherwise = Replace x y
 
 -- | 'patch' for 'Swap'
 eqPatch :: Swap a -> a -> Maybe a
-eqPatch NoChange    x = Just x
-eqPatch (Replace x) _ = Just x
+eqPatch (NoChange _ ) x = Just x
+eqPatch (Replace _ x) _ = Just x
 
 eqUndiff :: Swap a -> (a, a)
-eqUndiff NoChange    = (undefined, undefined)
-eqUndiff (Replace x) = (undefined, x)
+eqUndiff (NoChange x)  = (x,x)
+eqUndiff (Replace x y) = (x,y)
 
 -- | Newtype wrapper that gives an automatic 'Diff' instance that treats
 -- all changes as total differences.
 newtype EqDiff a = EqDiff { getEqDiff :: a }
   deriving (Generic, Eq, Ord, Show, Read)
 
-instance Patch (Swap a) where
-    patchLevel NoChange    = NoDiff 1
-    patchLevel (Replace _) = TotalDiff 1
+instance Eq a => Patch (Swap a) where
+    patchLevel (NoChange _)  = NoDiff 1
+    patchLevel (Replace _ _) = TotalDiff 1
 
-    mergePatch NoChange      NoChange      = NoConflict NoChange
-    mergePatch NoChange      r@(Replace _) = Conflict r
-    mergePatch l@(Replace _) _             = Conflict l
+    mergePatch (NoChange x)    (NoChange y)
+      | x == y    = NoConflict (NoChange x)
+      | otherwise = Incompatible                -- TODO: be more lenient
+    mergePatch (NoChange _)    r@(Replace _ _) = Conflict r
+    mergePatch l@(Replace _ _) _               = Conflict l
 
 instance Eq a => DefaultDiff (Swap a) a where
     defaultDiff   = eqDiff
