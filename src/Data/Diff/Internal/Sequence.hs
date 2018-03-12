@@ -41,24 +41,26 @@ import           Data.Bifunctor
 import           Data.Diff.Internal
 import           Data.Function
 import           Data.Hashable
+import           Data.Maybe
 import           Data.Proxy
-import           Data.Semigroup hiding   (diff)
-import           GHC.Generics            (Generic)
+import           Data.Semigroup hiding        (diff)
+import           GHC.Generics                 (Generic)
 import           GHC.TypeNats
-import qualified Data.Algorithm.Diff     as D
-import qualified Data.Algorithm.Diff3    as D
-import qualified Data.HashSet            as HS
-import qualified Data.IntSet             as IS
-import qualified Data.Semigroup          as S
-import qualified Data.Set                as S
-import qualified Data.String.Conversions as SC
-import qualified Data.Text               as T
-import qualified Data.Text.Lazy          as TL
-import qualified Data.Vector             as V
-import qualified Data.Vector.Primitive   as VP
-import qualified Data.Vector.Storable    as VS
-import qualified Data.Vector.Unboxed     as VU
-import qualified GHC.Exts                as E
+import qualified Data.Algorithm.Diff          as D
+import qualified Data.Algorithm.Diff3         as D
+import qualified Data.HashSet                 as HS
+import qualified Data.IntSet                  as IS
+import qualified Data.Semigroup               as S
+import qualified Data.Set                     as S
+import qualified Data.String.Conversions      as SC
+import qualified Data.Text                    as T
+import qualified Data.Text.Lazy               as TL
+import qualified Data.Vector                  as V
+import qualified Data.Vector.Primitive        as VP
+import qualified Data.Vector.Storable         as VS
+import qualified Data.Vector.Unboxed          as VU
+import qualified GHC.Exts                     as E
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 newtype SeqPatchAt (p :: Nat) a = SPA { getSPA :: [D.Diff a] }
   deriving (Show, Eq, Generic)
@@ -78,6 +80,16 @@ instance (KnownNat p, Diff a) => Patch (SeqPatchAt p a) where
       where
         (xs1, ys) = listUndiff es1
         (xs2, zs) = listUndiff es2
+
+instance (KnownNat p, Diff a, Show a, ShowPatch (Edit a)) => ShowPatch (SeqPatchAt p a) where
+    showPatch es = PP.vcat . mapMaybe go $ getSPA es
+      where
+        go :: D.Diff a -> Maybe PP.Doc
+        go (D.First  x) = Just $ PP.red    (PP.char '-') <> PP.text (show x)
+        go (D.Second x) = Just $ PP.green  (PP.char '+') <> PP.text (show x)
+        go (D.Both x y)
+            | x == y    = Nothing
+            | otherwise = Just $ PP.yellow (PP.char '~') <> showPatch (diff x y)
 
 type SeqPatch = SeqPatchAt 50
 

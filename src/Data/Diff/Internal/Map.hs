@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE RankNTypes           #-}
@@ -14,8 +15,8 @@ module Data.Diff.Internal.Map (
   , MapDiff(..)
   ) where
 
--- import           Data.Semigroup hiding (diff)
--- import qualified Data.Set              as S
+import           Data.Semigroup hiding     (diff)
+-- import qualified Data.Set                  as S
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal
@@ -23,10 +24,11 @@ import           Data.Either
 import           Data.Foldable
 import           Data.Hashable
 import           Data.Maybe
-import           GHC.Generics             (Generic)
-import qualified Data.HashMap.Lazy        as HM
-import qualified Data.IntMap              as IM
-import qualified Data.Map                 as M
+import           GHC.Generics                 (Generic)
+import qualified Data.HashMap.Lazy            as HM
+import qualified Data.IntMap                  as IM
+import qualified Data.Map                     as M
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 data ValDiff a = VDDel a
                | VDIns a
@@ -86,6 +88,23 @@ fmp f (MD xs) (MD ys) = fmap MD . sequence
                           (pure <$> xs)
                           (pure <$> ys)
 
+fsp :: forall m k a. (Show k, Show a, ShowPatch (Edit a))
+    => (m (ValDiff a) -> [(k, ValDiff a)])
+    -> MapDiff m a
+    -> PP.Doc
+fsp f = PP.vcat . mapMaybe (uncurry go) . f . getMD
+  where
+    go :: k -> ValDiff a -> Maybe PP.Doc
+    go k = \case
+      VDDel _ -> Just $ PP.red   (PP.char '-')
+                     <> PP.text ("key " ++ show k)
+      VDIns x -> Just $ PP.green (PP.char '+')
+                     <> PP.text ("key " ++ show k ++ ", val " ++ show x)
+      VDMod e -> Just $ PP.yellow (PP.char '~')
+                     <> PP.text ("key " ++ show k)
+                 PP.<+> showPatch e
+
+
 instance (Diff a, Ord k) => Patch (MapDiff (M.Map k) a) where
     patchLevel = fpl
     mergePatch = fmp M.unionWith
@@ -97,6 +116,15 @@ instance Diff a => Patch (MapDiff IM.IntMap a) where
 instance (Hashable k, Eq k, Diff a) => Patch (MapDiff (HM.HashMap k) a) where
     patchLevel = fpl
     mergePatch = fmp HM.unionWith
+
+instance (Diff a, Ord k, Show k, Show a, ShowPatch (Edit a)) => ShowPatch (MapDiff (M.Map k) a) where
+    showPatch = fsp M.toList
+
+instance (Diff a, Show a, ShowPatch (Edit a)) => ShowPatch (MapDiff IM.IntMap a) where
+    showPatch = fsp IM.toList
+
+instance (Diff a, Hashable k, Eq k, Show k, Show a, ShowPatch (Edit a)) => ShowPatch (MapDiff (HM.HashMap k) a) where
+    showPatch = fsp HM.toList
 
 md  :: Functor m
     => (forall b. [m b] -> m b)

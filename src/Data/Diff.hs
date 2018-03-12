@@ -6,6 +6,7 @@ module Data.Diff (
   , Patch(..), DiffLevel(..), MergeResult(..)
   , merge, catLevels, normDL, dlPercent, percentDiff, prodPatchLevel
   , compareDiff
+  , ShowPatch(..)
   , DefaultDiff(..)
   , Edit'(..), diff', patch', undiff'
   , Swap(..), eqDiff, eqPatch

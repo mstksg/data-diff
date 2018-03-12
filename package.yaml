@@ -46,6 +46,7 @@ library:
   - unordered-containers
   - vector
   - string-conversions
+  - ansi-wl-pprint
 
 executables:
   generics-diff-pandoc:
