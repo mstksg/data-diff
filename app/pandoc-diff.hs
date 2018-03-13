@@ -53,14 +53,19 @@ instance Diff P.Citation
 instance Diff P.CitationMode
 
 loadDoc :: FilePath -> IO P.Pandoc
-loadDoc = P.runIOorExplode . P.readMarkdown def <=< T.readFile
+loadDoc = P.runIOorExplode
+        . P.readMarkdown def { P.readerExtensions = P.pandocExtensions }
+      <=< T.readFile
 
 printDoc :: P.Pandoc -> T.Text
-printDoc = either undefined id . P.runPure . P.writeMarkdown def
+printDoc = either undefined id
+         . P.runPure
+         . P.writeMarkdown def { P.writerExtensions = P.pandocExtensions }
 
 main :: IO ()
 main = do
     p1:p2:p3:_ <- traverse loadDoc =<< getArgs
+    print p1
     let d12  = diff p1 p2
         d13  = diff p1 p3
         d123 = mergePatch d12 d13

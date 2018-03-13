@@ -97,8 +97,10 @@ fsp f = PP.vcat . mapMaybe (uncurry go) . f . getMD
     go k = \case
       VDDel _ -> Just . ppDel $ PP.text ("key " ++ show k)
       VDIns x -> Just . ppAdd $ PP.text ("key " ++ show k ++ ", val " ++ show x)
-      VDMod e -> Just $ ppMod (PP.text ("key " ++ show k))
-                 PP.<+> showPatch e
+      VDMod e -> case patchLevel e of
+        NoDiff _ -> Nothing
+        _        -> Just $ ppMod (PP.text ("key " ++ show k ++ ", val"))
+                    PP.<+> showPatch e
 
 
 instance (Diff a, Ord k) => Patch (MapDiff (M.Map k) a) where

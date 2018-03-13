@@ -228,7 +228,7 @@ showProd
     -> PP.Doc
 showProd f ci es
   | null (catMaybes ds) = ppNoChange
-  | otherwise           = iNm PP.<+> case ci of
+  | otherwise           = (iNm PP.<+>) . PP.align $ case ci of
       SOP.Constructor{} -> docList ds
       SOP.Infix{}       -> docList ds
       SOP.Record{}      ->

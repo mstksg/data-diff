@@ -83,14 +83,14 @@ instance (KnownNat p, Diff a) => Patch (SeqPatchAt p a) where
 
 -- TODO: compress
 instance (KnownNat p, Diff a, Show a, ShowPatch (Edit a)) => ShowPatch (SeqPatchAt p a) where
-    showPatch es = PP.vcat . map go $ getSPA es
+    showPatch es = PP.text ".." PP.<+> PP.align (PP.vcat (go <$> getSPA es))
       where
         go :: D.Diff a -> PP.Doc
         go (D.First  x) = ppDel $ PP.text   (show x)
         go (D.Second x) = ppAdd $ PP.text   (show x)
         go (D.Both x y) = ppMod $ showPatch (diff x y)
 
-type SeqPatch = SeqPatchAt 50
+type SeqPatch = SeqPatchAt 20
 
 newtype EqSeqPatch a = ESP { getESP :: SeqPatchAt 0 (EqDiff a) }
   deriving (Show, Eq, Patch, Generic)
