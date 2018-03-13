@@ -39,9 +39,9 @@ module Data.Diff.Internal.Sequence (
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal
+import           Data.Diff.Pretty
 import           Data.Function
 import           Data.Hashable
-import           Data.Maybe
 import           Data.Proxy
 import           Data.Semigroup hiding        (diff)
 import           GHC.Generics                 (Generic)
@@ -81,15 +81,14 @@ instance (KnownNat p, Diff a) => Patch (SeqPatchAt p a) where
         (xs1, ys) = listUndiff es1
         (xs2, zs) = listUndiff es2
 
+-- TODO: compress
 instance (KnownNat p, Diff a, Show a, ShowPatch (Edit a)) => ShowPatch (SeqPatchAt p a) where
-    showPatch es = PP.vcat . mapMaybe go $ getSPA es
+    showPatch es = PP.vcat . map go $ getSPA es
       where
-        go :: D.Diff a -> Maybe PP.Doc
-        go (D.First  x) = Just $ PP.red    (PP.char '-') <> PP.text (show x)
-        go (D.Second x) = Just $ PP.green  (PP.char '+') <> PP.text (show x)
-        go (D.Both x y)
-            | x == y    = Nothing
-            | otherwise = Just $ PP.yellow (PP.char '~') <> showPatch (diff x y)
+        go :: D.Diff a -> PP.Doc
+        go (D.First  x) = ppDel $ PP.text   (show x)
+        go (D.Second x) = ppAdd $ PP.text   (show x)
+        go (D.Both x y) = ppMod $ showPatch (diff x y)
 
 type SeqPatch = SeqPatchAt 50
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE PolyKinds           #-}
@@ -19,10 +20,13 @@ module Data.Type.Combinator.Util (
   , sumIx
   , fromSum
   , ifromSum
+  , ixNum
+  , sListLength
   ) where
 
 import           Data.Type.Conjunction
 import           Data.Type.Index
+import           Data.Type.Length
 import           Data.Type.Product
 import           Data.Type.Sum
 import           Type.Class.Higher
@@ -151,3 +155,18 @@ ifromSum
 ifromSum f = \case
     InL x  -> f IZ x
     InR xs -> ifromSum (f . IS) xs
+
+ixNum
+    :: Index as a
+    -> Int
+ixNum = go 0
+  where
+    go :: Int -> Index bs b -> Int
+    go !x = \case
+      IZ   -> x
+      IS i -> go (x + 1) i
+
+sListLength :: SOP.SList as -> Length as
+sListLength = \case
+    SOP.SNil  -> LZ
+    SOP.SCons -> LS $ sListLength SOP.sList

@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE DeriveFoldable        #-}
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DeriveTraversable     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
@@ -40,18 +42,23 @@ module Data.Diff.Internal (
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal.Generics
+import           Data.Diff.Pretty
+import           Data.Foldable
 import           Data.Function
+import           Data.Maybe
+import           Data.Proxy
 import           Data.Semigroup               (Semigroup(..))
 import           Data.Type.Combinator
 import           Data.Type.Combinator.Util
 import           Data.Type.Conjunction
 import           Data.Type.Equality
 import           Data.Type.Index
-import           Data.Type.Product
+import           Data.Type.Product hiding     (toList)
 import           Data.Type.Sum
 import           GHC.Generics                 (Generic)
 import           Type.Class.Higher
 import           Type.Class.Witness
+import           Type.Family.Constraint
 import           Type.Reflection
 import qualified Generics.SOP                 as SOP
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -60,6 +67,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 data DiffLevel = DL { dlAmt :: Double
                     , dlTot :: Double
                     }
+  deriving Show
 
 instance Semigroup DiffLevel where
     DL x s <> DL y t = DL (x + y) (s + t)
@@ -91,10 +99,10 @@ pattern TotalDiff t <- (totalDiff->Just t)
     TotalDiff t = DL t t
 
 -- | Rescale 'DiffLevel' to be out of a given total.
---
--- TODO: what about 0?
-normDL :: Double -> DiffLevel -> DiffLevel
-normDL s (DL x t) = DL (x / t * s) s
+normDL :: Double -> DiffLevel -> Maybe DiffLevel
+normDL s (DL x t)
+    | t == 0    = Nothing
+    | otherwise = Just $ DL (x / t * s) s
 
 -- | Calculate percent difference.
 --
@@ -108,16 +116,19 @@ catLevels
     :: Foldable f
     => f DiffLevel
     -> DiffLevel
-catLevels = normMaybe . foldMap (normDL 1)
+catLevels xs = case normed of
+    [] | null xs   -> NoDiff 1
+       | otherwise -> NoDiff (fromIntegral (length xs))
+    ds -> fold ds
   where
-    normMaybe (DL _ 0) = NoDiff 1
-    normMaybe dl       = normDL 1 dl
+    normed = mapMaybe (normDL 1) . toList $ xs
+
 
 -- | Result of a merge
 data MergeResult a = Incompatible       -- ^ Incompatible sources
                    | Conflict   a       -- ^ Conflicts, throwing away info
                    | NoConflict a       -- ^ All conflicts resolved
-  deriving (Functor, Show, Eq, Ord)
+  deriving (Functor, Show, Eq, Ord, Foldable, Traversable)
 
 instance Applicative MergeResult where
     pure  = return
@@ -236,6 +247,8 @@ newtype Edit' a = Edit' { getEdit' :: Edit a }
 
 instance SOP.Generic (Edit' a)
 instance Patch (Edit a) => Patch (Edit' a)
+instance ShowPatch (Edit a) => ShowPatch (Edit' a) where
+    showPatch = showPatch . getEdit'
 
 -- | 'diff'' lifted to 'Edit''
 diff' :: Diff a => a -> a -> Edit' a
@@ -299,13 +312,35 @@ instance SOP.Generic (GPatch a)
 -- even if they have the same type of values.
 newtype GPatch' a = GP' { getGP' :: GPatch a }
 
-instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every Diff) (SOP.Code a)) => Patch (GPatch a) where
+instance ( SOP.Generic a
+        , Every (Every Diff) (SOP.Code a)
+        )
+        => Patch (GPatch a) where
     patchLevel = gpPatchLevel
     mergePatch = gpMergePatch
 
-instance (SOP.Generic a, Every (Every Diff) (SOP.Code a), Every (Every Diff) (SOP.Code a)) => Patch (GPatch' a) where
+instance ( SOP.Generic a
+         , SOP.HasDatatypeInfo a
+         , Every (Every Diff) (SOP.Code a)
+         , Every (Every Show) (SOP.Code a)
+         , Every (Every (Comp ShowPatch Edit')) (SOP.Code a)
+         )
+        => ShowPatch (GPatch a) where
+    showPatch = gpShowPatch
+
+instance (SOP.Generic a, Every (Every Diff) (SOP.Code a))
+        => Patch (GPatch' a) where
     patchLevel = gpPatchLevel . getGP'
     mergePatch x y = GP' <$> gpMergePatch (getGP' x) (getGP' y)
+
+instance ( SOP.Generic a
+         , SOP.HasDatatypeInfo a
+         , Every (Every Diff) (SOP.Code a)
+         , Every (Every Show) (SOP.Code a)
+         , Every (Every (Comp ShowPatch Edit')) (SOP.Code a)
+         )
+        => ShowPatch (GPatch' a) where
+    showPatch = gpShowPatch . getGP'
 
 -- | Patch level for 'GPatch'
 gpPatchLevel
@@ -314,7 +349,7 @@ gpPatchLevel
     -> DiffLevel
 gpPatchLevel (GP (SD (i :&: cd))) = case cd of
     CDEdit es         -> prodPatchLevel es \\ every @_ @(Every Diff) i
-    CDName (_ :&: es) -> catLevels [TotalDiff 1, prodPatchLevel es]     -- TODO: rescale appropriately
+    CDName (_ :&: es) -> TotalDiff 1 <> prodPatchLevel es
                                       \\ every @_ @(Every Diff) i
     CDDiff _ _        -> TotalDiff 1
 
@@ -324,6 +359,17 @@ prodPatchLevel = catLevels . ifoldMap1 go
   where
     go :: Index as a -> Edit' a -> [DiffLevel]
     go i (Edit' e) = [patchLevel e] \\ every @_ @Diff i
+
+prodShowPatch
+    :: (Every Diff as, Every (Comp ShowPatch Edit') as)
+    => SOP.ConstructorInfo as
+    -> Prod Edit' as
+    -> PP.Doc
+prodShowPatch = showProd $ \i e -> every @_ @Diff i //
+                                   every @_ @(Comp ShowPatch Edit') i //
+    case patchLevel e of
+      NoDiff _ -> Nothing
+      _        -> Just $ showPatch e
 
 -- | Merge 'GPatch'
 gpMergePatch
@@ -371,6 +417,21 @@ gpMergePatch (GP (SD (i1 :&: cd1)))
               pure (CDDiff os (j1 :&: zs))
             Nothing -> Conflict cd1
     Nothing   -> Incompatible
+
+gpShowPatch
+    :: forall a. (Every (Every Show) (SOP.Code a), Every (Every (Comp ShowPatch Edit')) (SOP.Code a), SOP.HasDatatypeInfo a)
+    => GPatch a -> PP.Doc
+gpShowPatch (GP es) = showSOP (\i j e ->
+                                  (case patchLevel e of
+                                    NoDiff _ -> Nothing
+                                    _        -> Just (showPatch e))
+                                      \\ every @_ @Show j
+                                      \\ every @_ @(Every Show) i
+                                      \\ every @_ @(Comp ShowPatch Edit') j
+                                      \\ every @_ @(Every (Comp ShowPatch Edit')) i
+                              )
+                        (SOP.datatypeInfo (Proxy @a))
+                        es
 
 -- | Merge product of patches
 prodMergePatch
@@ -463,7 +524,15 @@ instance (SOP.IsProductType a as, Every Diff as) => Patch (GPatchProd a) where
     patchLevel (GPP es) = prodPatchLevel es
     mergePatch (GPP es1) (GPP es2) = GPP <$> prodMergePatch es1 es2
 
-instance (SOP.IsProductType a as, Every Diff as) => ShowPatch (GPatchProd a) where
+instance ( SOP.IsProductType a as
+         , Every Diff as
+         , Every Show as
+         , SOP.HasDatatypeInfo a
+         , Every (Comp ShowPatch Edit') as
+         ) => ShowPatch (GPatchProd a) where
+    showPatch (GPP es) = prodShowPatch
+        (SOP.hd . SOP.constructorInfo . SOP.datatypeInfo $ Proxy @a)
+        es
 
 instance (SOP.IsProductType a as, Every Diff as) => DefaultDiff (GPatchProd a) a where
     defaultDiff   = gdiffProd
@@ -563,9 +632,9 @@ instance Eq a => DefaultDiff (Swap a) a where
     defaultUndiff = eqUndiff
 
 instance (Show a, Eq a) => ShowPatch (Swap a) where
-    showPatch (NoChange _ ) = PP.text "<no change>"
-    showPatch (Replace x y) = (PP.red   (PP.char '-') <> PP.text (show x))
-                       PP.</> (PP.green (PP.char '+') <> PP.text (show y))
+    showPatch (NoChange _ ) = ppNoChange
+    showPatch (Replace x y) = ppDel (PP.text (show x))
+                       PP.</> ppAdd (PP.text (show y))
 
 instance Eq a => Diff (EqDiff a) where
     type Edit (EqDiff a) = Swap a

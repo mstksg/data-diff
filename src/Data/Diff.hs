@@ -6,7 +6,7 @@ module Data.Diff (
   , Patch(..), DiffLevel(..), MergeResult(..)
   , merge, catLevels, normDL, dlPercent, percentDiff, prodPatchLevel
   , compareDiff
-  , ShowPatch(..)
+  , ShowPatch(..), putPatch
   , DefaultDiff(..)
   , Edit'(..), diff', patch', undiff'
   , Swap(..), eqDiff, eqPatch
@@ -58,3 +58,7 @@ import           Data.Diff.Internal
 import           Data.Diff.Internal.Generics
 import           Data.Diff.Internal.Map
 import           Data.Diff.Internal.Sequence
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
+
+putPatch :: ShowPatch a => a -> IO ()
+putPatch = PP.putDoc . showPatch

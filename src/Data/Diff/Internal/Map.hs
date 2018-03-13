@@ -15,11 +15,10 @@ module Data.Diff.Internal.Map (
   , MapDiff(..)
   ) where
 
-import           Data.Semigroup hiding     (diff)
--- import qualified Data.Set                  as S
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.Diff.Internal
+import           Data.Diff.Pretty
 import           Data.Either
 import           Data.Foldable
 import           Data.Hashable
@@ -96,12 +95,9 @@ fsp f = PP.vcat . mapMaybe (uncurry go) . f . getMD
   where
     go :: k -> ValDiff a -> Maybe PP.Doc
     go k = \case
-      VDDel _ -> Just $ PP.red   (PP.char '-')
-                     <> PP.text ("key " ++ show k)
-      VDIns x -> Just $ PP.green (PP.char '+')
-                     <> PP.text ("key " ++ show k ++ ", val " ++ show x)
-      VDMod e -> Just $ PP.yellow (PP.char '~')
-                     <> PP.text ("key " ++ show k)
+      VDDel _ -> Just . ppDel $ PP.text ("key " ++ show k)
+      VDIns x -> Just . ppAdd $ PP.text ("key " ++ show k ++ ", val " ++ show x)
+      VDMod e -> Just $ ppMod (PP.text ("key " ++ show k))
                  PP.<+> showPatch e
 
 

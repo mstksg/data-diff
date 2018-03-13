@@ -35,6 +35,7 @@ library:
   - Data.Diff.Internal.Map
   - Data.Diff.Internal.Sequence
   - Data.Type.Combinator.Util
+  - Data.Diff.Pretty
   dependencies:
   - Diff
   - hashable
