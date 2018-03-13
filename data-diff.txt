@@ -156,7 +156,7 @@ gmergePatch :: forall a as. (IsProductType a as, Every Patch as) => a -> a -> Me
 newtype SeqPatchAt (p :: Nat) a
 SPA :: [Diff a] -> SeqPatchAt a
 [getSPA] :: SeqPatchAt a -> [Diff a]
-type SeqPatch = SeqPatchAt 50
+type SeqPatch = SeqPatchAt 20
 listDiff :: forall p a. (KnownNat p, Diff a) => [a] -> [a] -> SeqPatchAt p a
 listPatch :: Eq a => SeqPatchAt p a -> [a] -> Maybe [a]
 listUndiff :: SeqPatchAt p a -> ([a], [a])
