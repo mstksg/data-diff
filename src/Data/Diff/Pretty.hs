@@ -19,4 +19,4 @@ ppMod :: PP.Doc -> PP.Doc
 ppMod x = PP.yellow (PP.char '~') <> PP.align x
 
 ppNoChange :: PP.Doc
-ppNoChange = PP.text "<no change>"
+ppNoChange = PP.dullwhite (PP.text "<no change>")

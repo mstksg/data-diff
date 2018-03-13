@@ -241,7 +241,7 @@ showProd f ci es
 recDoc :: [PP.Doc] -> PP.Doc
 recDoc = PP.encloseSep PP.lbrace PP.rbrace PP.comma
 recField :: SOP.FieldName -> PP.Doc -> PP.Doc
-recField fn d = PP.text fn PP.<+> PP.char '=' PP.<+> d
+recField fn d = PP.text fn PP.<+> PP.char '=' PP.<+> PP.align d
 docList :: [Maybe PP.Doc] -> PP.Doc
 docList = PP.vcat . map (fromMaybe ppNoChange)
 

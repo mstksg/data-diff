@@ -54,7 +54,9 @@ instance Diff P.CitationMode
 
 loadDoc :: FilePath -> IO P.Pandoc
 loadDoc = P.runIOorExplode
-        . P.readMarkdown def { P.readerExtensions = P.pandocExtensions }
+        . P.readMarkdown def { P.readerExtensions = P.pandocExtensions
+                             , P.readerStandalone = True
+                             }
       <=< T.readFile
 
 printDoc :: P.Pandoc -> T.Text
@@ -65,16 +67,18 @@ printDoc = either undefined id
 main :: IO ()
 main = do
     p1:p2:p3:_ <- traverse loadDoc =<< getArgs
-    print p1
     let d12  = diff p1 p2
         d13  = diff p1 p3
         d123 = mergePatch d12 d13
+    print p1
     putStrLn "Diff 1"
+    print p2
     print . dlPercent . patchLevel $ d12
     putPatch d12
     putStrLn ""
     putStrLn ""
     putStrLn "Diff 2"
+    print p3
     print . dlPercent . patchLevel $ d13
     putPatch d13
     putStrLn ""
@@ -88,6 +92,6 @@ main = do
     putStrLn "Merged"
     case merge p1 p2 p3 of
       Incompatible -> putStrLn "no merge"
-      Conflict p   -> putStrLn "conflict" >> T.putStrLn (printDoc p)
-      NoConflict p -> putStrLn "no conflict" >> T.putStrLn (printDoc p)
+      Conflict p   -> putStrLn "conflict" >> print p >> T.putStrLn (printDoc p)
+      NoConflict p -> putStrLn "no conflict" >> print p >> T.putStrLn (printDoc p)
 

@@ -71,8 +71,9 @@ undiffVD (VDMod e) = bimap Just Just $ undiff e
 
 fpl :: (Diff a, Foldable m) => MapDiff m a -> DiffLevel
 fpl (partitionEithers . map splitVD . toList . getMD -> (lr, b))
-     | null lr   = catLevels bLevels
-     | null b    = NoDiff 1
+     | null lr   = if null b
+                      then NoDiff 1
+                      else catLevels bLevels
      | otherwise = catLevels $ (TotalDiff 1 <$ toList lr) ++ bLevels
   where
     bLevels = map patchLevel b
@@ -91,7 +92,10 @@ fsp :: forall m k a. (Show k, Show a, ShowPatch (Edit a))
     => (m (ValDiff a) -> [(k, ValDiff a)])
     -> MapDiff m a
     -> PP.Doc
-fsp f = PP.vcat . mapMaybe (uncurry go) . f . getMD
+fsp f = (PP.text ".:" PP.<+>)
+      . PP.align . PP.vcat
+      . mapMaybe (uncurry go) . f
+      . getMD
   where
     go :: k -> ValDiff a -> Maybe PP.Doc
     go k = \case
