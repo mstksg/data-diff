@@ -92,9 +92,7 @@ merge :: Diff a => a -> a -> a -> MergeResult a
 catLevels :: Foldable f => f DiffLevel -> DiffLevel
 
 -- | Rescale <a>DiffLevel</a> to be out of a given total.
---   
---   TODO: what about 0?
-normDL :: Double -> DiffLevel -> DiffLevel
+normDL :: Double -> DiffLevel -> Maybe DiffLevel
 
 -- | Calculate percent difference.
 --   
@@ -109,6 +107,9 @@ prodPatchLevel :: forall as. Every Diff as => Prod Edit' as -> DiffLevel
 
 -- | Get <a>DiffLevel</a> between two items
 compareDiff :: Diff a => a -> a -> DiffLevel
+class Patch a => ShowPatch a
+showPatch :: ShowPatch a => a -> Doc
+putPatch :: ShowPatch a => a -> IO ()
 class DefaultDiff p a
 defaultDiff :: DefaultDiff p a => a -> a -> p
 defaultPatch :: DefaultDiff p a => p -> a -> Maybe a
