@@ -200,6 +200,7 @@ showSOP f di (SD ((i :: Index ass as) :&: cd)) = case cd of
       let jCtr :: SOP.ConstructorInfo bs
           jCtr = ctrInfo j
           (jNm, jFs) = bimap PP.text (TCP.toList SOP.fieldName) . ctrNames $ jCtr
+          ds :: [PP.Doc]
           ds = ifoldMap1 (\k (I x) -> [PP.text (show x)]
                                         \\ every @_ @Show k
                                         \\ every @_ @(Every Show) j
@@ -250,7 +251,7 @@ ctrNames
     => SOP.ConstructorInfo as
     -> (String, Prod SOP.FieldInfo as)
 ctrNames = \case
-    SOP.Constructor n -> (n, numeric)   \\ sListLength (SOP.sList @_ @as)
+    SOP.Constructor n -> (n, numeric)   \\ sListLength (SOP.sList @as)
     SOP.Infix n _ _   -> ("(_ " ++ n ++ " _)", numeric)
     SOP.Record n fs   -> (n, sopProd fs)
   where
